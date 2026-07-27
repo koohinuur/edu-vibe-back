@@ -56,6 +56,7 @@ public interface IApplicationDbContext
     DbSet<VisitorMessage> VisitorMessages { get; }
     DbSet<Book> Books { get; }
     DbSet<AssignmentBook> AssignmentBooks { get; }
+    DbSet<AssignmentFile> AssignmentFiles { get; }
     DbSet<AssignmentAssignee> AssignmentAssignees { get; }
     DbSet<LearningTask> LearningTasks { get; }
     DbSet<TaskSubmission> TaskSubmissions { get; }

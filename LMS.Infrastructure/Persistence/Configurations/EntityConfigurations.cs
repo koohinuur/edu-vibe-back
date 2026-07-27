@@ -473,6 +473,21 @@ public sealed class AssignmentBookConfiguration : IEntityTypeConfiguration<Assig
     }
 }
 
+public sealed class AssignmentFileConfiguration : IEntityTypeConfiguration<AssignmentFile>
+{
+    public void Configure(EntityTypeBuilder<AssignmentFile> b)
+    {
+        b.ToTable("assignment_files");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.StoredFileName).IsRequired().HasMaxLength(256);
+        b.Property(x => x.OriginalFileName).IsRequired().HasMaxLength(512);
+        b.Property(x => x.MimeType).IsRequired().HasMaxLength(256);
+        b.HasIndex(x => x.AssignmentId);
+        b.HasOne(x => x.Assignment).WithMany().HasForeignKey(x => x.AssignmentId)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
 public sealed class AssignmentAssigneeConfiguration : IEntityTypeConfiguration<AssignmentAssignee>
 {
     public void Configure(EntityTypeBuilder<AssignmentAssignee> b)

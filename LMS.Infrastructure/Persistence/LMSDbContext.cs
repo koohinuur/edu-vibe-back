@@ -81,6 +81,7 @@ public sealed class LMSDbContext : DbContext, IApplicationDbContext
     public DbSet<VisitorMessage> VisitorMessages => Set<VisitorMessage>();
     public DbSet<Book> Books => Set<Book>();
     public DbSet<AssignmentBook> AssignmentBooks => Set<AssignmentBook>();
+    public DbSet<AssignmentFile> AssignmentFiles => Set<AssignmentFile>();
     public DbSet<AssignmentAssignee> AssignmentAssignees => Set<AssignmentAssignee>();
     public DbSet<LearningTask> LearningTasks => Set<LearningTask>();
     public DbSet<TaskSubmission> TaskSubmissions => Set<TaskSubmission>();

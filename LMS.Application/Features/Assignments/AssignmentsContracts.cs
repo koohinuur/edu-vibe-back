@@ -67,3 +67,23 @@ public sealed record SetAssignmentAssigneesCommand(
 
 public sealed record GetAssignmentAssigneesQuery(Guid AssignmentId)
     : IRequest<Result<IReadOnlyCollection<AssignmentAssigneeDto>>>;
+
+// ----- Worksheet files -----------------------------------------------------
+
+public sealed record AssignmentFileDto(
+    Guid Id, Guid AssignmentId, string OriginalFileName, string MimeType, long FileSize, DateTime CreatedAt);
+
+public sealed record AssignmentFileDownloadDto(string StoredFileName, string OriginalFileName, string MimeType);
+
+public sealed record AddAssignmentFileCommand(
+    Guid AssignmentId, string StoredFileName, string OriginalFileName, string MimeType, long FileSize)
+    : IRequest<Result<AssignmentFileDto>>;
+
+/// <summary>Removes a worksheet file. Returns the stored name so the controller deletes the blob.</summary>
+public sealed record RemoveAssignmentFileCommand(Guid AssignmentId, Guid FileId) : IRequest<Result<string>>;
+
+public sealed record GetAssignmentFilesQuery(Guid AssignmentId)
+    : IRequest<Result<IReadOnlyCollection<AssignmentFileDto>>>;
+
+public sealed record GetAssignmentFileForDownloadQuery(Guid FileId)
+    : IRequest<Result<AssignmentFileDownloadDto>>;

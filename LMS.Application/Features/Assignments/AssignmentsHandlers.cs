@@ -20,7 +20,11 @@ public sealed class AssignmentsHandlers(
     IRequestHandler<DetachBookFromAssignmentCommand, Result>,
     IRequestHandler<GetAssignmentBooksQuery, Result<IReadOnlyCollection<AssignmentBookDto>>>,
     IRequestHandler<SetAssignmentAssigneesCommand, Result<IReadOnlyCollection<AssignmentAssigneeDto>>>,
-    IRequestHandler<GetAssignmentAssigneesQuery, Result<IReadOnlyCollection<AssignmentAssigneeDto>>>
+    IRequestHandler<GetAssignmentAssigneesQuery, Result<IReadOnlyCollection<AssignmentAssigneeDto>>>,
+    IRequestHandler<AddAssignmentFileCommand, Result<AssignmentFileDto>>,
+    IRequestHandler<RemoveAssignmentFileCommand, Result<string>>,
+    IRequestHandler<GetAssignmentFilesQuery, Result<IReadOnlyCollection<AssignmentFileDto>>>,
+    IRequestHandler<GetAssignmentFileForDownloadQuery, Result<AssignmentFileDownloadDto>>
 {
     public async Task<Result<AssignmentDto>> Handle(CloseAssignmentCommand request, CancellationToken cancellationToken)
     {
@@ -68,6 +72,75 @@ public sealed class AssignmentsHandlers(
         if (currentUser.StudentProfileId is not { } spid) return new List<Guid>();
         return await db.Enrollments.Where(e => e.StudentProfileId == spid)
             .Select(e => e.ClassId).ToListAsync(ct);
+    }
+
+    // ----- Worksheet files -------------------------------------------------
+
+    public async Task<Result<AssignmentFileDto>> Handle(AddAssignmentFileCommand request,
+        CancellationToken cancellationToken)
+    {
+        var exists = await db.Assignments.AnyAsync(a => a.Id == request.AssignmentId, cancellationToken);
+        if (!exists) return Result<AssignmentFileDto>.Fail("NOT_FOUND", "Assignment not found.");
+
+        var file = new AssignmentFile(request.AssignmentId, request.StoredFileName,
+            request.OriginalFileName, request.MimeType, request.FileSize);
+        await db.AssignmentFiles.AddAsync(file, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
+        return Result<AssignmentFileDto>.Ok(
+            new AssignmentFileDto(file.Id, file.AssignmentId, file.OriginalFileName,
+                file.MimeType, file.FileSize, file.CreatedAt));
+    }
+
+    public async Task<Result<string>> Handle(RemoveAssignmentFileCommand request,
+        CancellationToken cancellationToken)
+    {
+        var file = await db.AssignmentFiles.FirstOrDefaultAsync(
+            f => f.Id == request.FileId && f.AssignmentId == request.AssignmentId, cancellationToken);
+        if (file is null) return Result<string>.Fail("NOT_FOUND", "File not found.");
+        var storedName = file.StoredFileName;
+        db.AssignmentFiles.Remove(file);
+        await db.SaveChangesAsync(cancellationToken);
+        return Result<string>.Ok(storedName, "Removed");
+    }
+
+    public async Task<Result<IReadOnlyCollection<AssignmentFileDto>>> Handle(
+        GetAssignmentFilesQuery request, CancellationToken cancellationToken)
+    {
+        // SECURITY: students only see files for assignments in their enrolled classes.
+        var scope = await NonStaffEnrolledClassScopeAsync(cancellationToken);
+        if (scope is not null)
+        {
+            var classId = await db.Assignments.Where(a => a.Id == request.AssignmentId)
+                .Select(a => (Guid?)a.ClassId).FirstOrDefaultAsync(cancellationToken);
+            if (classId is null || !scope.Contains(classId.Value))
+                return Result<IReadOnlyCollection<AssignmentFileDto>>.Fail("FORBIDDEN", "Not your assignment.");
+        }
+
+        var items = await db.AssignmentFiles.AsNoTracking()
+            .Where(f => f.AssignmentId == request.AssignmentId)
+            .OrderBy(f => f.CreatedAt)
+            .Select(f => new AssignmentFileDto(f.Id, f.AssignmentId, f.OriginalFileName,
+                f.MimeType, f.FileSize, f.CreatedAt))
+            .ToListAsync(cancellationToken);
+        return Result<IReadOnlyCollection<AssignmentFileDto>>.Ok(items);
+    }
+
+    public async Task<Result<AssignmentFileDownloadDto>> Handle(
+        GetAssignmentFileForDownloadQuery request, CancellationToken cancellationToken)
+    {
+        var row = await db.AssignmentFiles.AsNoTracking()
+            .Where(f => f.Id == request.FileId)
+            .Join(db.Assignments, f => f.AssignmentId, a => a.Id, (f, a) => new { f, a.ClassId })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (row is null) return Result<AssignmentFileDownloadDto>.Fail("NOT_FOUND", "File not found.");
+
+        // SECURITY: staff any; a student must be enrolled in the assignment's class.
+        var scope = await NonStaffEnrolledClassScopeAsync(cancellationToken);
+        if (scope is not null && !scope.Contains(row.ClassId))
+            return Result<AssignmentFileDownloadDto>.Fail("FORBIDDEN", "Not your assignment.");
+
+        return Result<AssignmentFileDownloadDto>.Ok(
+            new AssignmentFileDownloadDto(row.f.StoredFileName, row.f.OriginalFileName, row.f.MimeType));
     }
 
     public async Task<Result<IReadOnlyCollection<AssignmentDto>>> Handle(GetStudentAssignmentsQuery request,
