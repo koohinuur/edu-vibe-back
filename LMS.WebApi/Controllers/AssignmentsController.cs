@@ -1,3 +1,4 @@
+using LMS.Application.Common.Abstractions;
 using LMS.Application.Common.Security;
 using LMS.Application.Features.Assignments;
 using LMS.Domain.Enums;
@@ -12,8 +13,10 @@ namespace LMS.WebApi.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
-public sealed class AssignmentsController(ISender sender) : ControllerBase
+public sealed class AssignmentsController(ISender sender, IMaterialFileStore store) : ControllerBase
 {
+    private const long UploadSizeLimit = 25L * 1024 * 1024;
+
     /// <summary>Lists assignments, optionally filtered by teacher, class, or status.</summary>
     [HttpGet]
     [PermissionAuthorize(Permissions.Assignments.Read)]
@@ -113,6 +116,79 @@ public sealed class AssignmentsController(ISender sender) : ControllerBase
         return r.Success
             ? Ok(ApiResponse<object>.Ok(null, r.Message))
             : BadRequest(ApiResponse<object>.Fail(r.Message ?? "Failed"));
+    }
+
+    // ----- Worksheet files -------------------------------------------------
+
+    /// <summary>Worksheet files attached to this assignment (teacher-provided, for students to download).</summary>
+    [HttpGet("{id:guid}/files")]
+    [PermissionAuthorize(Permissions.Assignments.Read)]
+    public async Task<ActionResult<ApiResponse<IReadOnlyCollection<AssignmentFileDto>>>> GetFiles(Guid id,
+        CancellationToken ct)
+    {
+        var r = await sender.Send(new GetAssignmentFilesQuery(id), ct);
+        if (!r.Success)
+            return StatusCode(403, ApiResponse<IReadOnlyCollection<AssignmentFileDto>>.Fail(r.Message ?? "Forbidden"));
+        return Ok(ApiResponse<IReadOnlyCollection<AssignmentFileDto>>.Ok(r.Data, r.Message));
+    }
+
+    /// <summary>Teacher attaches a worksheet file to this assignment.</summary>
+    [HttpPost("{id:guid}/files")]
+    [PermissionAuthorize(Permissions.Assignments.Update)]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(UploadSizeLimit)]
+    public async Task<ActionResult<ApiResponse<AssignmentFileDto>>> UploadFile(
+        Guid id, IFormFile file, CancellationToken ct)
+    {
+        if (file is null || file.Length == 0)
+            return BadRequest(ApiResponse<AssignmentFileDto>.Fail("File is required."));
+        if (file.Length > UploadSizeLimit)
+            return BadRequest(ApiResponse<AssignmentFileDto>.Fail("File exceeds the 25 MB limit."));
+
+        string storedName;
+        try
+        {
+            await using var stream = file.OpenReadStream();
+            storedName = await store.SaveAsync(stream, file.FileName, file.ContentType, ct);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ApiResponse<AssignmentFileDto>.Fail(ex.Message));
+        }
+
+        var r = await sender.Send(new AddAssignmentFileCommand(
+            id, storedName, file.FileName, file.ContentType, file.Length), ct);
+
+        if (!r.Success)
+        {
+            await store.DeleteAsync(storedName, ct); // clean up the orphan blob
+            return BadRequest(ApiResponse<AssignmentFileDto>.Fail(r.Message ?? "Upload rejected"));
+        }
+        return Ok(ApiResponse<AssignmentFileDto>.Ok(r.Data, r.Message));
+    }
+
+    /// <summary>Detach + delete a worksheet file.</summary>
+    [HttpDelete("{id:guid}/files/{fileId:guid}")]
+    [PermissionAuthorize(Permissions.Assignments.Update)]
+    public async Task<ActionResult<ApiResponse<object>>> DeleteFile(Guid id, Guid fileId, CancellationToken ct)
+    {
+        var r = await sender.Send(new RemoveAssignmentFileCommand(id, fileId), ct);
+        if (!r.Success) return BadRequest(ApiResponse<object>.Fail(r.Message ?? "Failed"));
+        if (!string.IsNullOrEmpty(r.Data)) await store.DeleteAsync(r.Data, ct);
+        return Ok(ApiResponse<object>.Ok(new { }, r.Message));
+    }
+
+    /// <summary>Streams a worksheet file — staff (any) or a student enrolled in the assignment's class.</summary>
+    [HttpGet("files/{fileId:guid}/download")]
+    [PermissionAuthorize(Permissions.Assignments.Read)]
+    public async Task<IActionResult> DownloadFile(Guid fileId, CancellationToken ct)
+    {
+        var r = await sender.Send(new GetAssignmentFileForDownloadQuery(fileId), ct);
+        if (!r.Success || r.Data is null) return NotFound();
+        var stream = await store.OpenAsync(r.Data.StoredFileName, ct);
+        if (stream is null) return NotFound();
+        Response.Headers.ContentDisposition = $"inline; filename=\"{r.Data.OriginalFileName.Replace("\"", "")}\"";
+        return File(stream, r.Data.MimeType, enableRangeProcessing: true);
     }
 
     // ----- Per-student targeting ------------------------------------------

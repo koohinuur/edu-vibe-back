@@ -31,6 +31,8 @@ public static class ExerciseChecker
                 => CheckItems(content, userAnswers, multiGap: true),
             "multi_select"
                 => CheckMultiSelect(content, userAnswers),
+            "underline" // student selects phrases in a passage; content.answers = correct phrases
+                => CheckMultiSelect(content, userAnswers),
             "writing"
                 => CheckWriting(content, userAnswers),
             "crossword"
