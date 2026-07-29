@@ -170,6 +170,44 @@ public sealed class ExercisesController(ISender sender, ICurrentUserService curr
         if (opened is null) return NotFound();
         return File(opened.Value.Stream, opened.Value.ContentType);
     }
+
+    /// <summary>
+    /// Upload an exercise document (teacher/admin) — a reading passage or writing worksheet
+    /// as a PDF / Word file. Returns the stored file name; the caller stores it as
+    /// <c>content.fileUrl</c> = <c>/api/proxy/Exercises/file/{fileName}</c>.
+    /// </summary>
+    [HttpPost("exercises/file")]
+    [PermissionAuthorize(Permissions.Classes.Update)]
+    [RequestSizeLimit(25 * 1024 * 1024)]
+    public async Task<ActionResult<ApiResponse<FileUploadDto>>> UploadFile(
+        IFormFile file, [FromServices] IExerciseFileStore store, CancellationToken ct)
+    {
+        if (file is null || file.Length == 0)
+            return BadRequest(ApiResponse<FileUploadDto>.Fail("No file provided."));
+        if (file.Length > 20 * 1024 * 1024)
+            return BadRequest(ApiResponse<FileUploadDto>.Fail("File must be 20 MB or smaller."));
+        try
+        {
+            await using var s = file.OpenReadStream();
+            var stored = await store.SaveAsync(s, file.FileName, ct);
+            return Ok(ApiResponse<FileUploadDto>.Ok(new FileUploadDto(stored), "Uploaded."));
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ApiResponse<FileUploadDto>.Fail(ex.Message));
+        }
+    }
+
+    /// <summary>Stream a previously uploaded exercise document (any authenticated user).
+    /// Reached via the same-origin proxy.</summary>
+    [HttpGet("exercises/file/{fileName}")]
+    public async Task<IActionResult> GetFile(
+        string fileName, [FromServices] IExerciseFileStore store, CancellationToken ct)
+    {
+        var opened = await store.OpenAsync(fileName, ct);
+        if (opened is null) return NotFound();
+        return File(opened.Value.Stream, opened.Value.ContentType);
+    }
 }
 
 /// <summary>Request body for the bulk add/update endpoint.</summary>
@@ -186,3 +224,6 @@ public sealed record AudioUploadDto(string FileName);
 
 /// <summary>Result of an image upload — the opaque stored file name.</summary>
 public sealed record ImageUploadDto(string FileName);
+
+/// <summary>Result of a document (PDF / Word) upload — the opaque stored file name.</summary>
+public sealed record FileUploadDto(string FileName);

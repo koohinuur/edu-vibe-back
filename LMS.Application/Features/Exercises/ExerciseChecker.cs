@@ -25,10 +25,12 @@ public static class ExerciseChecker
         return type switch
         {
             "mcq" or "mcq_ab" or "fill_blank" or "transform"
-                or "word_completion" or "matching" or "true_false" or "image_label"
+                or "word_completion" or "matching" or "image_label"
                 => CheckItems(content, userAnswers, multiGap: false),
             "error_correction"
                 => CheckErrorCorrection(content, userAnswers),
+            "true_false"
+                => CheckTrueFalse(content, userAnswers),
             "word_bank_gap"
                 => CheckWordBankGap(content, userAnswers),
             "multi_select"
@@ -146,6 +148,25 @@ public static class ExerciseChecker
             total++;
             var user = Single(UserAnswerFor(userAnswers, prop.Name, -1));
             if (MatchesAny(user, prop.Value.ToString())) score++;
+    /// <summary>True/False items: same shape as CheckItems, but each side is canonicalised so
+    /// content that stores "T"/"F" still matches the "True"/"False" the widget submits.</summary>
+    private static (int, int) CheckTrueFalse(JsonElement content, JsonElement userAnswers)
+    {
+        int score = 0, total = 0;
+        if (!content.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
+            return (0, 0);
+
+        var example = IsExample(content);
+        var i = 0;
+        foreach (var item in items.EnumerateArray())
+        {
+            if (example && i == 0) { i++; continue; } // first item is a shown worked example — not graded
+            var id = item.TryGetProperty("id", out var idEl) ? idEl.ToString() : i.ToString();
+            var userForItem = UserAnswerFor(userAnswers, id, i);
+            total++;
+            var expected = item.TryGetProperty("answer", out var a) ? a.ToString() : null;
+            if (expected is not null && NormTF(Single(userForItem)) == NormTF(expected)) score++;
+            i++;
         }
         return (score, total);
     }
@@ -183,6 +204,11 @@ public static class ExerciseChecker
             && content.TryGetProperty("answers", out var ans) && ans.ValueKind == JsonValueKind.Object)
             return CheckAnswerMap(ans, userAnswers);
         return CheckDialogue(content, userAnswers);
+    /// <summary>Canonical true/false token: "t…" → "true", "f…" → "false", else the plain norm.</summary>
+    private static string NormTF(string? s)
+    {
+        var n = Norm(s);
+        return n.StartsWith("t") ? "true" : n.StartsWith("f") ? "false" : n;
     }
 
     /// <summary>Aligned compare of two string lists by index. total = expected.Count.</summary>
