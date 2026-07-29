@@ -148,6 +148,10 @@ public static class ExerciseChecker
             total++;
             var user = Single(UserAnswerFor(userAnswers, prop.Name, -1));
             if (MatchesAny(user, prop.Value.ToString())) score++;
+        }
+        return (score, total);
+    }
+
     /// <summary>True/False items: same shape as CheckItems, but each side is canonicalised so
     /// content that stores "T"/"F" still matches the "True"/"False" the widget submits.</summary>
     private static (int, int) CheckTrueFalse(JsonElement content, JsonElement userAnswers)
@@ -204,6 +208,8 @@ public static class ExerciseChecker
             && content.TryGetProperty("answers", out var ans) && ans.ValueKind == JsonValueKind.Object)
             return CheckAnswerMap(ans, userAnswers);
         return CheckDialogue(content, userAnswers);
+    }
+
     /// <summary>Canonical true/false token: "t…" → "true", "f…" → "false", else the plain norm.</summary>
     private static string NormTF(string? s)
     {
