@@ -28,7 +28,7 @@ public static class ExerciseChecker
                 or "word_completion" or "matching" or "true_false" or "image_label"
                 => CheckItems(content, userAnswers, multiGap: false),
             "word_bank_gap"
-                => CheckItems(content, userAnswers, multiGap: true),
+                => CheckWordBankGap(content, userAnswers),
             "multi_select"
                 => CheckMultiSelect(content, userAnswers),
             "underline" // student selects phrases in a passage; content.answers = correct phrases
@@ -119,6 +119,45 @@ public static class ExerciseChecker
             i++;
         }
         return (score, total);
+    }
+
+    /// <summary>word_bank_gap: the textbook "complete the text" task comes in two shapes —
+    /// discrete <c>items</c> (multi-gap), OR a single <c>passage</c> string with numbered
+    /// <c>N___</c> blanks + an <c>answers</c> MAP <c>{"1":"…"}</c>. The passage shape grades
+    /// against the map (user answers keyed by the same blank number); else fall back to items.</summary>
+    private static (int, int) CheckWordBankGap(JsonElement content, JsonElement userAnswers)
+    {
+        if (content.TryGetProperty("passage", out var p) && p.ValueKind == JsonValueKind.String
+            && content.TryGetProperty("answers", out var ans) && ans.ValueKind == JsonValueKind.Object)
+            return CheckAnswerMap(ans, userAnswers);
+        return CheckItems(content, userAnswers, multiGap: true);
+    }
+
+    /// <summary>Grade an <c>answers</c> map keyed by blank number ("1","2",…) against the user's
+    /// answers keyed the same way. total = entries; score = matched. A "/"-separated expected
+    /// value accepts any of its alternatives.</summary>
+    private static (int, int) CheckAnswerMap(JsonElement answers, JsonElement userAnswers)
+    {
+        int score = 0, total = 0;
+        foreach (var prop in answers.EnumerateObject())
+        {
+            total++;
+            var user = Single(UserAnswerFor(userAnswers, prop.Name, -1));
+            if (MatchesAny(user, prop.Value.ToString())) score++;
+        }
+        return (score, total);
+    }
+
+    /// <summary>True when the user's answer equals the expected value, or (for a "/"-separated
+    /// expected such as "on/at") any single alternative — all compared case/space-insensitively.</summary>
+    private static bool MatchesAny(string? user, string expected)
+    {
+        var u = Norm(user);
+        if (u.Length == 0) return false;
+        if (u == Norm(expected)) return true;
+        foreach (var alt in expected.Split('/'))
+            if (Norm(alt) == u) return true;
+        return false;
     }
 
     /// <summary>Aligned compare of two string lists by index. total = expected.Count.</summary>
