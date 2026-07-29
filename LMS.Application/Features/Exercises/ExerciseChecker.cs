@@ -312,14 +312,20 @@ public static class ExerciseChecker
         return (words.Count(w => found.Contains(w)), words.Count);
     }
 
-    /// <summary>Table completion: rows[].cells[]; a cell carrying an "answer" is a blank to
-    /// fill (a cell with only "text" is pre-filled/given). User answers are keyed "r,c".
-    /// total = number of blank cells; score = matched.</summary>
+    /// <summary>Table completion: rows[].cells; a cell carrying an "answer" is a blank to fill
+    /// (a cell with only "text" is pre-filled/given). Cells are normally an ARRAY aligned to
+    /// content.columns, but bulk-imported content may give a MAP keyed by column header
+    /// ({"-al":"…"}) — that's aligned to the column order here. User answers are keyed "r,c";
+    /// total = blank cells; score = matched.</summary>
     private static (int, int) CheckTable(JsonElement content, JsonElement userAnswers)
     {
         int score = 0, total = 0;
         if (!content.TryGetProperty("rows", out var rows) || rows.ValueKind != JsonValueKind.Array)
             return (0, 0);
+
+        var columns = new List<string>();
+        if (content.TryGetProperty("columns", out var cols) && cols.ValueKind == JsonValueKind.Array)
+            foreach (var col in cols.EnumerateArray()) columns.Add(col.GetString() ?? string.Empty);
 
         var r = 0;
         foreach (var row in rows.EnumerateArray())
@@ -336,6 +342,18 @@ public static class ExerciseChecker
                         if (Norm(user) == Norm(ansEl.ToString())) score++;
                     }
                     c++;
+                }
+            }
+            else if (cells.ValueKind == JsonValueKind.Object) // map keyed by column header
+            {
+                for (var c = 0; c < columns.Count; c++)
+                {
+                    if (cells.TryGetProperty(columns[c], out var cellVal))
+                    {
+                        total++;
+                        var user = Single(UserAnswerFor(userAnswers, $"{r},{c}", -1));
+                        if (Norm(user) == Norm(cellVal.ToString())) score++;
+                    }
                 }
             }
             r++;
