@@ -265,13 +265,41 @@ public static class ExerciseChecker
         return (words >= min ? 1 : 0, 1);
     }
 
+    /// <summary>Fallback crossword grading for imported puzzles that ship <c>across</c>/<c>down</c>
+    /// clue lists but no computed grid. Grades each clue's answer keyed by direction+id ("a1"/"d2"),
+    /// matching the clue-list widget; multi-word answers accepted via <see cref="MatchesAny"/>.</summary>
+    private static (int, int) CheckCrosswordClues(JsonElement content, JsonElement userAnswers)
+    {
+        int score = 0, total = 0;
+        foreach (var (prop, prefix) in new[] { ("across", "a"), ("down", "d") })
+        {
+            if (!content.TryGetProperty(prop, out var arr) || arr.ValueKind != JsonValueKind.Array) continue;
+            var i = 0;
+            foreach (var it in arr.EnumerateArray())
+            {
+                var id = it.TryGetProperty("id", out var idEl) ? idEl.ToString() : i.ToString();
+                var answer = it.TryGetProperty("answer", out var a) ? a.ToString() : null;
+                if (answer is not null)
+                {
+                    total++;
+                    var user = Single(UserAnswerFor(userAnswers, $"{prefix}{id}", -1));
+                    if (MatchesAny(user, answer)) score++;
+                }
+                i++;
+            }
+        }
+        return (score, total);
+    }
+
     /// <summary>Crossword: content.entries = the words placed on the grid (number, direction,
     /// clue, answer, row, col). The user submits filled letters keyed by cell "r,c". total =
-    /// entries; score = entries whose every cell matches the answer (case-insensitive).</summary>
+    /// entries; score = entries whose every cell matches the answer (case-insensitive).
+    /// No computed grid (imported clue-only puzzle) → the clue-answer fallback.</summary>
     private static (int, int) CheckCrossword(JsonElement content, JsonElement userAnswers)
     {
-        if (!content.TryGetProperty("entries", out var entries) || entries.ValueKind != JsonValueKind.Array)
-            return (0, 0);
+        if (!content.TryGetProperty("entries", out var entries) || entries.ValueKind != JsonValueKind.Array
+            || entries.GetArrayLength() == 0)
+            return CheckCrosswordClues(content, userAnswers);
 
         int score = 0, total = 0;
         foreach (var e in entries.EnumerateArray())
