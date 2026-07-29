@@ -24,11 +24,15 @@ public static class ExerciseChecker
 
         return type switch
         {
-            "mcq" or "mcq_ab" or "fill_blank" or "error_correction" or "transform"
-                or "word_completion" or "matching" or "true_false" or "image_label"
+            "mcq" or "mcq_ab" or "fill_blank" or "transform"
+                or "word_completion" or "matching" or "image_label"
                 => CheckItems(content, userAnswers, multiGap: false),
+            "error_correction"
+                => CheckErrorCorrection(content, userAnswers),
+            "true_false"
+                => CheckTrueFalse(content, userAnswers),
             "word_bank_gap"
-                => CheckItems(content, userAnswers, multiGap: true),
+                => CheckWordBankGap(content, userAnswers),
             "multi_select"
                 => CheckMultiSelect(content, userAnswers),
             "underline" // student selects phrases in a passage; content.answers = correct phrases
@@ -42,7 +46,7 @@ public static class ExerciseChecker
             "table_fill"
                 => CheckTable(content, userAnswers),
             "dialogue"
-                => CheckDialogue(content, userAnswers),
+                => CheckDialogueOrMatch(content, userAnswers),
             "word_search"
                 => CheckWordSearch(content, userAnswers),
             "multi"
@@ -119,6 +123,98 @@ public static class ExerciseChecker
             i++;
         }
         return (score, total);
+    }
+
+    /// <summary>word_bank_gap: the textbook "complete the text" task comes in two shapes —
+    /// discrete <c>items</c> (multi-gap), OR a single <c>passage</c> string with numbered
+    /// <c>N___</c> blanks + an <c>answers</c> MAP <c>{"1":"…"}</c>. The passage shape grades
+    /// against the map (user answers keyed by the same blank number); else fall back to items.</summary>
+    private static (int, int) CheckWordBankGap(JsonElement content, JsonElement userAnswers)
+    {
+        if (content.TryGetProperty("passage", out var p) && p.ValueKind == JsonValueKind.String
+            && content.TryGetProperty("answers", out var ans) && ans.ValueKind == JsonValueKind.Object)
+            return CheckAnswerMap(ans, userAnswers);
+        return CheckItems(content, userAnswers, multiGap: true);
+    }
+
+    /// <summary>Grade an <c>answers</c> map keyed by blank number ("1","2",…) against the user's
+    /// answers keyed the same way. total = entries; score = matched. A "/"-separated expected
+    /// value accepts any of its alternatives.</summary>
+    private static (int, int) CheckAnswerMap(JsonElement answers, JsonElement userAnswers)
+    {
+        int score = 0, total = 0;
+        foreach (var prop in answers.EnumerateObject())
+        {
+            total++;
+            var user = Single(UserAnswerFor(userAnswers, prop.Name, -1));
+            if (MatchesAny(user, prop.Value.ToString())) score++;
+        }
+        return (score, total);
+    }
+
+    /// <summary>True/False items: same shape as CheckItems, but each side is canonicalised so
+    /// content that stores "T"/"F" still matches the "True"/"False" the widget submits.</summary>
+    private static (int, int) CheckTrueFalse(JsonElement content, JsonElement userAnswers)
+    {
+        int score = 0, total = 0;
+        if (!content.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array)
+            return (0, 0);
+
+        var example = IsExample(content);
+        var i = 0;
+        foreach (var item in items.EnumerateArray())
+        {
+            if (example && i == 0) { i++; continue; } // first item is a shown worked example — not graded
+            var id = item.TryGetProperty("id", out var idEl) ? idEl.ToString() : i.ToString();
+            var userForItem = UserAnswerFor(userAnswers, id, i);
+            total++;
+            var expected = item.TryGetProperty("answer", out var a) ? a.ToString() : null;
+            if (expected is not null && NormTF(Single(userForItem)) == NormTF(expected)) score++;
+            i++;
+        }
+        return (score, total);
+    }
+
+    /// <summary>True when the user's answer equals the expected value, or (for a "/"-separated
+    /// expected such as "on/at") any single alternative — all compared case/space-insensitively.</summary>
+    private static bool MatchesAny(string? user, string expected)
+    {
+        var u = Norm(user);
+        if (u.Length == 0) return false;
+        if (u == Norm(expected)) return true;
+        foreach (var alt in expected.Split('/'))
+            if (Norm(alt) == u) return true;
+        return false;
+    }
+
+    /// <summary>error_correction: either discrete items (correct-the-sentence) OR a passage with
+    /// N unmarked mistakes + an answers MAP {"1":"corrected",…} (find-the-mistakes). The map shape
+    /// grades against the map by number; else falls back to items.</summary>
+    private static (int, int) CheckErrorCorrection(JsonElement content, JsonElement userAnswers)
+    {
+        if (content.TryGetProperty("passage", out var p) && p.ValueKind == JsonValueKind.String
+            && content.TryGetProperty("answers", out var ans) && ans.ValueKind == JsonValueKind.Object)
+            return CheckAnswerMap(ans, userAnswers);
+        return CheckItems(content, userAnswers, multiGap: false);
+    }
+
+    /// <summary>dialogue: either the fill-the-gaps items shape (lines + answers arrays) OR the
+    /// "match sentences a–g into a conversation" shape — a <c>dialogue</c> array with numbered
+    /// gaps + an answers MAP {gapNumber: letter}. The map shape grades against the map; else the
+    /// existing per-item grading.</summary>
+    private static (int, int) CheckDialogueOrMatch(JsonElement content, JsonElement userAnswers)
+    {
+        if (content.TryGetProperty("dialogue", out var d) && d.ValueKind == JsonValueKind.Array
+            && content.TryGetProperty("answers", out var ans) && ans.ValueKind == JsonValueKind.Object)
+            return CheckAnswerMap(ans, userAnswers);
+        return CheckDialogue(content, userAnswers);
+    }
+
+    /// <summary>Canonical true/false token: "t…" → "true", "f…" → "false", else the plain norm.</summary>
+    private static string NormTF(string? s)
+    {
+        var n = Norm(s);
+        return n.StartsWith("t") ? "true" : n.StartsWith("f") ? "false" : n;
     }
 
     /// <summary>Aligned compare of two string lists by index. total = expected.Count.</summary>
@@ -201,13 +297,41 @@ public static class ExerciseChecker
         return (words >= min ? 1 : 0, 1);
     }
 
+    /// <summary>Fallback crossword grading for imported puzzles that ship <c>across</c>/<c>down</c>
+    /// clue lists but no computed grid. Grades each clue's answer keyed by direction+id ("a1"/"d2"),
+    /// matching the clue-list widget; multi-word answers accepted via <see cref="MatchesAny"/>.</summary>
+    private static (int, int) CheckCrosswordClues(JsonElement content, JsonElement userAnswers)
+    {
+        int score = 0, total = 0;
+        foreach (var (prop, prefix) in new[] { ("across", "a"), ("down", "d") })
+        {
+            if (!content.TryGetProperty(prop, out var arr) || arr.ValueKind != JsonValueKind.Array) continue;
+            var i = 0;
+            foreach (var it in arr.EnumerateArray())
+            {
+                var id = it.TryGetProperty("id", out var idEl) ? idEl.ToString() : i.ToString();
+                var answer = it.TryGetProperty("answer", out var a) ? a.ToString() : null;
+                if (answer is not null)
+                {
+                    total++;
+                    var user = Single(UserAnswerFor(userAnswers, $"{prefix}{id}", -1));
+                    if (MatchesAny(user, answer)) score++;
+                }
+                i++;
+            }
+        }
+        return (score, total);
+    }
+
     /// <summary>Crossword: content.entries = the words placed on the grid (number, direction,
     /// clue, answer, row, col). The user submits filled letters keyed by cell "r,c". total =
-    /// entries; score = entries whose every cell matches the answer (case-insensitive).</summary>
+    /// entries; score = entries whose every cell matches the answer (case-insensitive).
+    /// No computed grid (imported clue-only puzzle) → the clue-answer fallback.</summary>
     private static (int, int) CheckCrossword(JsonElement content, JsonElement userAnswers)
     {
-        if (!content.TryGetProperty("entries", out var entries) || entries.ValueKind != JsonValueKind.Array)
-            return (0, 0);
+        if (!content.TryGetProperty("entries", out var entries) || entries.ValueKind != JsonValueKind.Array
+            || entries.GetArrayLength() == 0)
+            return CheckCrosswordClues(content, userAnswers);
 
         int score = 0, total = 0;
         foreach (var e in entries.EnumerateArray())
@@ -248,14 +372,20 @@ public static class ExerciseChecker
         return (words.Count(w => found.Contains(w)), words.Count);
     }
 
-    /// <summary>Table completion: rows[].cells[]; a cell carrying an "answer" is a blank to
-    /// fill (a cell with only "text" is pre-filled/given). User answers are keyed "r,c".
-    /// total = number of blank cells; score = matched.</summary>
+    /// <summary>Table completion: rows[].cells; a cell carrying an "answer" is a blank to fill
+    /// (a cell with only "text" is pre-filled/given). Cells are normally an ARRAY aligned to
+    /// content.columns, but bulk-imported content may give a MAP keyed by column header
+    /// ({"-al":"…"}) — that's aligned to the column order here. User answers are keyed "r,c";
+    /// total = blank cells; score = matched.</summary>
     private static (int, int) CheckTable(JsonElement content, JsonElement userAnswers)
     {
         int score = 0, total = 0;
         if (!content.TryGetProperty("rows", out var rows) || rows.ValueKind != JsonValueKind.Array)
             return (0, 0);
+
+        var columns = new List<string>();
+        if (content.TryGetProperty("columns", out var cols) && cols.ValueKind == JsonValueKind.Array)
+            foreach (var col in cols.EnumerateArray()) columns.Add(col.GetString() ?? string.Empty);
 
         var r = 0;
         foreach (var row in rows.EnumerateArray())
@@ -272,6 +402,18 @@ public static class ExerciseChecker
                         if (Norm(user) == Norm(ansEl.ToString())) score++;
                     }
                     c++;
+                }
+            }
+            else if (cells.ValueKind == JsonValueKind.Object) // map keyed by column header
+            {
+                for (var c = 0; c < columns.Count; c++)
+                {
+                    if (cells.TryGetProperty(columns[c], out var cellVal))
+                    {
+                        total++;
+                        var user = Single(UserAnswerFor(userAnswers, $"{r},{c}", -1));
+                        if (Norm(user) == Norm(cellVal.ToString())) score++;
+                    }
                 }
             }
             r++;
