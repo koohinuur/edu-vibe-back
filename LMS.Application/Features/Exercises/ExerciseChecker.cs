@@ -24,9 +24,11 @@ public static class ExerciseChecker
 
         return type switch
         {
-            "mcq" or "mcq_ab" or "fill_blank" or "error_correction" or "transform"
+            "mcq" or "mcq_ab" or "fill_blank" or "transform"
                 or "word_completion" or "matching" or "true_false" or "image_label"
                 => CheckItems(content, userAnswers, multiGap: false),
+            "error_correction"
+                => CheckErrorCorrection(content, userAnswers),
             "word_bank_gap"
                 => CheckWordBankGap(content, userAnswers),
             "multi_select"
@@ -42,7 +44,7 @@ public static class ExerciseChecker
             "table_fill"
                 => CheckTable(content, userAnswers),
             "dialogue"
-                => CheckDialogue(content, userAnswers),
+                => CheckDialogueOrMatch(content, userAnswers),
             "word_search"
                 => CheckWordSearch(content, userAnswers),
             "multi"
@@ -158,6 +160,29 @@ public static class ExerciseChecker
         foreach (var alt in expected.Split('/'))
             if (Norm(alt) == u) return true;
         return false;
+    }
+
+    /// <summary>error_correction: either discrete items (correct-the-sentence) OR a passage with
+    /// N unmarked mistakes + an answers MAP {"1":"corrected",…} (find-the-mistakes). The map shape
+    /// grades against the map by number; else falls back to items.</summary>
+    private static (int, int) CheckErrorCorrection(JsonElement content, JsonElement userAnswers)
+    {
+        if (content.TryGetProperty("passage", out var p) && p.ValueKind == JsonValueKind.String
+            && content.TryGetProperty("answers", out var ans) && ans.ValueKind == JsonValueKind.Object)
+            return CheckAnswerMap(ans, userAnswers);
+        return CheckItems(content, userAnswers, multiGap: false);
+    }
+
+    /// <summary>dialogue: either the fill-the-gaps items shape (lines + answers arrays) OR the
+    /// "match sentences a–g into a conversation" shape — a <c>dialogue</c> array with numbered
+    /// gaps + an answers MAP {gapNumber: letter}. The map shape grades against the map; else the
+    /// existing per-item grading.</summary>
+    private static (int, int) CheckDialogueOrMatch(JsonElement content, JsonElement userAnswers)
+    {
+        if (content.TryGetProperty("dialogue", out var d) && d.ValueKind == JsonValueKind.Array
+            && content.TryGetProperty("answers", out var ans) && ans.ValueKind == JsonValueKind.Object)
+            return CheckAnswerMap(ans, userAnswers);
+        return CheckDialogue(content, userAnswers);
     }
 
     /// <summary>Aligned compare of two string lists by index. total = expected.Count.</summary>
