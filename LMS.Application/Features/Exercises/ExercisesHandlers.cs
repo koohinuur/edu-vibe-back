@@ -137,7 +137,8 @@ public sealed class ExercisesHandlers(IApplicationDbContext db) :
                 sp.RegisterDailyActivity(SchoolCalendar.Today(DateTime.UtcNow));
                 if (!sub.XpAwarded && total > 0 && score == total)
                 {
-                    var xp = ExerciseXp.ForCompletion(total);
+                    // A teacher-set content.xp overrides the automatic per-slot amount.
+                    var xp = ExerciseXp.CustomFromContent(ex.ContentJson) ?? ExerciseXp.ForCompletion(total);
                     if (xp > 0)
                     {
                         sp.AddXp(xp);
