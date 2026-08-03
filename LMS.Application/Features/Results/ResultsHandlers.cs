@@ -148,21 +148,35 @@ public sealed class ResultsHandlers(
 
     public async Task<Result<ResultDto>> Handle(UpdateResultCommand c, CancellationToken ct)
     {
-        var r = await db.Results.FirstOrDefaultAsync(x => x.Id == c.Id && !x.IsDeleted, ct);
-        if (r is null) return Result<ResultDto>.Fail("NOT_FOUND", "Result not found.");
-
-        r.Update(c.StudentFullName, c.ExamType, c.OverallScore, c.Language, c.Description, c.ImprovementText,
-            c.DurationText, c.Notes, c.BadgeIcon, c.DisplayOrder, c.IsFeatured, c.IsPublished);
-
-        var existing = await db.ResultScoreBreakdowns.Where(x => x.ResultId == r.Id && !x.IsDeleted).ToListAsync(ct);
-        foreach (var e in existing) e.SoftDelete();
-        foreach (var item in c.ScoreBreakdown)
+        // The whole update runs inside one retriable transaction. The wrapper clears
+        // the change tracker at the start of every attempt, so the entity load and the
+        // r.Update(...) mutation must live INSIDE the lambda — otherwise a retry would
+        // discard them. The two-step "delete + save, then insert + save" is deliberate:
+        // score breakdowns are hard-deleted and flushed BEFORE the new rows are inserted,
+        // so the reused (ResultId, Key) values don't collide with the unfiltered unique
+        // index (soft-deleting the old rows would leave them occupying those index slots
+        // and Postgres would throw a duplicate-key error). Both saves share the same
+        // physical transaction, so a mid-way failure rolls the entire update back.
+        return await db.ExecuteInTransactionAsync<ResultDto>(async () =>
         {
-            await db.ResultScoreBreakdowns.AddAsync(new ResultScoreBreakdown(r.Id, item.Key, item.Value), ct);
-        }
+            var r = await db.Results.FirstOrDefaultAsync(x => x.Id == c.Id && !x.IsDeleted, ct);
+            if (r is null) return Result<ResultDto>.Fail("NOT_FOUND", "Result not found.");
 
-        await db.SaveChangesAsync(ct);
-        return Result<ResultDto>.Ok(await Map(r, ct));
+            r.Update(c.StudentFullName, c.ExamType, c.OverallScore, c.Language, c.Description, c.ImprovementText,
+                c.DurationText, c.Notes, c.BadgeIcon, c.DisplayOrder, c.IsFeatured, c.IsPublished);
+
+            var existing = await db.ResultScoreBreakdowns.Where(x => x.ResultId == r.Id).ToListAsync(ct);
+            db.ResultScoreBreakdowns.RemoveRange(existing);
+            await db.SaveChangesAsync(ct);
+
+            foreach (var item in c.ScoreBreakdown)
+            {
+                await db.ResultScoreBreakdowns.AddAsync(new ResultScoreBreakdown(r.Id, item.Key, item.Value), ct);
+            }
+            await db.SaveChangesAsync(ct);
+
+            return Result<ResultDto>.Ok(await Map(r, ct));
+        }, ct);
     }
 
     public async Task<Result> Handle(DeleteResultCommand c, CancellationToken ct)
