@@ -39,7 +39,7 @@ public sealed class GetStaffQueryHandler(IApplicationDbContext db)
             .Select(x => new StaffDto(
                 x.s.Id, x.s.UserId, x.u.Email, x.s.EmploymentType,
                 x.s.FirstName, x.s.LastName, x.s.PhoneNumber, x.s.Description, x.s.AvatarUrl,
-                x.u.Status, x.s.Position, x.s.IsPubliclyVisible))
+                x.u.Status, x.s.Position, x.s.IsPubliclyVisible, x.s.Certifications, x.s.YearsExperience))
             .ToListAsync(cancellationToken);
 
         return Result<PagedResult<StaffDto>>.Ok(PagedResult<StaffDto>.From(items, total, page));
@@ -86,6 +86,7 @@ public sealed class UpdateStaffDetailsCommandHandler(IApplicationDbContext db)
         var sp = await db.StaffProfiles.FirstOrDefaultAsync(x => x.Id == request.StaffProfileId, cancellationToken);
         if (sp is null) return Result<StaffDto>.Fail("NOT_FOUND", "Staff profile not found.");
         sp.UpdateProfile(request.FirstName, request.LastName, request.PhoneNumber, request.Description, request.Position);
+        sp.SetCredentials(request.Certifications, request.YearsExperience);
         await db.SaveChangesAsync(cancellationToken);
         var user = await db.Users.FirstAsync(x => x.Id == sp.UserId, cancellationToken);
         return Result<StaffDto>.Ok(Map(sp, user.Email, user.Status));
@@ -208,7 +209,7 @@ internal static class StaffMapper
     public static StaffDto Map(StaffProfile sp, string email, Domain.Enums.UserStatus status) => new(
         sp.Id, sp.UserId, email, sp.EmploymentType,
         sp.FirstName, sp.LastName, sp.PhoneNumber, sp.Description, sp.AvatarUrl,
-        status, sp.Position, sp.IsPubliclyVisible);
+        status, sp.Position, sp.IsPubliclyVisible, sp.Certifications, sp.YearsExperience);
 }
 
 public sealed class GetPublicTeachersQueryHandler(IApplicationDbContext db)
@@ -236,6 +237,8 @@ public sealed class GetPublicTeachersQueryHandler(IApplicationDbContext db)
                 x.s.Position,
                 x.s.Description,
                 x.s.AvatarUrl,
+                x.s.Certifications,
+                x.s.YearsExperience,
                 Specs = x.s.Specializations
                     .Where(ss => ss.Specialization != null && ss.Specialization.IsActive)
                     .Select(ss => ss.Specialization!.Name).ToList(),
@@ -248,7 +251,7 @@ public sealed class GetPublicTeachersQueryHandler(IApplicationDbContext db)
                 .Where(s => !string.IsNullOrWhiteSpace(s)));
             if (string.IsNullOrWhiteSpace(name)) name = "Staff member";
             return new PublicTeacherDto(r.Id, name, r.Position, r.Description, r.AvatarUrl,
-                (IReadOnlyCollection<string>)r.Specs);
+                (IReadOnlyCollection<string>)r.Specs, r.Certifications, r.YearsExperience);
         }).ToList();
 
         return Result<IReadOnlyCollection<PublicTeacherDto>>.Ok(items);
