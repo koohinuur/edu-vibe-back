@@ -16,7 +16,9 @@ public sealed record StaffDto(
     string? AvatarUrl,
     UserStatus Status,
     string? Position,
-    bool IsPubliclyVisible);
+    bool IsPubliclyVisible,
+    string? Certifications,
+    int? YearsExperience);
 
 public sealed record SetStaffStatusCommand(Guid StaffProfileId, UserStatus Status)
     : IRequest<Result<StaffDto>>;
@@ -46,7 +48,9 @@ public sealed record UpdateStaffDetailsCommand(
     string? LastName,
     string? PhoneNumber,
     string? Description,
-    string? Position) : IRequest<Result<StaffDto>>;
+    string? Position,
+    string? Certifications = null,
+    int? YearsExperience = null) : IRequest<Result<StaffDto>>;
 
 public sealed record GetStaffQuery(int Page = 1, int PageSize = 25, string? Search = null)
     : IRequest<Result<PagedResult<StaffDto>>>;
@@ -73,7 +77,9 @@ public sealed record PublicTeacherDto(
     string? Position,
     string? Description,
     string? AvatarUrl,
-    IReadOnlyCollection<string> Specializations);
+    IReadOnlyCollection<string> Specializations,
+    string? Certifications,
+    int? YearsExperience);
 
 public sealed record GetPublicTeachersQuery(int Take = 30)
     : IRequest<Result<IReadOnlyCollection<PublicTeacherDto>>>;

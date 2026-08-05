@@ -31,6 +31,14 @@ public sealed class StaffProfile : BaseEntity
     /// </summary>
     public string? Position { get; private set; }
     /// <summary>
+    /// Comma/newline-separated certifications &amp; degrees ("IELTS, CELTA,
+    /// BSc Physics"). Rendered as badges on the marketing teachers grid /
+    /// profile. Split on comma or newline by the frontend.
+    /// </summary>
+    public string? Certifications { get; private set; }
+    /// <summary>Whole years of teaching experience shown on the marketing card; null when unset.</summary>
+    public int? YearsExperience { get; private set; }
+    /// <summary>
     /// Admin toggle — whether this staff member appears on the public
     /// marketing-site "Meet our teachers" section. Defaults to false so
     /// new staff don't leak onto the marketing site by accident.
@@ -59,6 +67,14 @@ public sealed class StaffProfile : BaseEntity
     public void SetEmploymentType(EmploymentType employmentType)
     {
         EmploymentType = employmentType;
+        Touch();
+    }
+
+    /// <summary>Sets the marketing credentials — certifications text + years of experience (clamped 0-80).</summary>
+    public void SetCredentials(string? certifications, int? yearsExperience)
+    {
+        Certifications = NormalizeOrNull(certifications, maxLength: 512, fieldName: nameof(Certifications));
+        YearsExperience = yearsExperience is null ? null : Math.Clamp(yearsExperience.Value, 0, 80);
         Touch();
     }
 
