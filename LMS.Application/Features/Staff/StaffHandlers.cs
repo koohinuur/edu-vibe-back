@@ -32,8 +32,14 @@ public sealed class GetStaffQueryHandler(IApplicationDbContext db)
         }
 
         var total = await query.CountAsync(cancellationToken);
+        // Status-first ordering (IsActive DESC): Active staff first, then
+        // Inactive/Blocked, then full name (First, Last) ascending with email as
+        // the final tiebreaker. Ordered in SQL before Skip/Take.
         var items = await query
-            .OrderBy(x => x.u.Email)
+            .OrderByDescending(x => x.u.Status == Domain.Enums.UserStatus.Active)
+            .ThenBy(x => x.s.FirstName)
+            .ThenBy(x => x.s.LastName)
+            .ThenBy(x => x.u.Email)
             .Skip(page.Skip)
             .Take(page.NormalizedPageSize)
             .Select(x => new StaffDto(

@@ -80,6 +80,8 @@ public static class DependencyInjection
 
         services.AddSingleton<ITaskGrader, TaskGrader>();
         services.AddSingleton<LMS.Application.Common.Salary.ISalaryCalculator, LMS.Application.Common.Salary.SalaryCalculator>();
+        // Stateless .xlsx read/write (bulk student import + result workbooks).
+        services.AddSingleton<IExcelService, ClosedXmlExcelService>();
         services.AddSingleton<IAvatarFileStore, LocalAvatarFileStore>();
         services.AddSingleton<IMaterialFileStore, LocalMaterialFileStore>();
         services.AddSingleton<ISubmissionFileStore, LocalSubmissionFileStore>();

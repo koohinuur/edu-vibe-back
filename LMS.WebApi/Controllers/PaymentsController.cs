@@ -66,6 +66,25 @@ public sealed class PaymentsController(ISender sender) : ControllerBase
                 : BadRequest(ApiResponse<TeacherSalaryConfigDto>.Fail(r.Message ?? "Failed"));
     }
 
+    /// <summary>
+    /// Assigns (or clears) a flat fixed monthly payment across one or more of the
+    /// teacher's classes at once. Body: {"teacherId":"...","classIds":["..."],
+    /// "fixedAmount":150}. A null fixedAmount clears the override on those classes
+    /// (reverting them to the percentage-of-revenue calculation).
+    /// </summary>
+    [HttpPut("salary-configs/fixed-amount")]
+    [PermissionAuthorize(Permissions.Payments.Update)]
+    public async Task<ActionResult<ApiResponse<IReadOnlyCollection<TeacherSalaryConfigDto>>>> SetFixedAmount(
+        [FromBody] SetTeacherClassFixedAmountCommand cmd, CancellationToken ct)
+    {
+        var r = await sender.Send(cmd, ct);
+        return r.Success
+            ? Ok(ApiResponse<IReadOnlyCollection<TeacherSalaryConfigDto>>.Ok(r.Data, r.Message))
+            : r.ErrorCode == "NOT_FOUND"
+                ? NotFound(ApiResponse<IReadOnlyCollection<TeacherSalaryConfigDto>>.Fail(r.Message ?? "Not found"))
+                : BadRequest(ApiResponse<IReadOnlyCollection<TeacherSalaryConfigDto>>.Fail(r.Message ?? "Failed"));
+    }
+
     [HttpDelete("salary-configs/{id:guid}")]
     [PermissionAuthorize(Permissions.Payments.Update)]
     public async Task<ActionResult<ApiResponse<object>>> DeleteSalaryConfig(Guid id, CancellationToken ct)

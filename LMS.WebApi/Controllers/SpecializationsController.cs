@@ -30,6 +30,7 @@ public sealed class SpecializationsController(ISender sender) : ControllerBase
     /// </summary>
     [HttpGet("public")]
     [AllowAnonymous]
+    [Microsoft.AspNetCore.OutputCaching.OutputCache(PolicyName = LMS.WebApi.Common.PublicReadCacheHeaderPolicy.Name)]
     public async Task<ActionResult<ApiResponse<IReadOnlyCollection<SpecializationDto>>>> Public(CancellationToken ct)
     {
         var r = await sender.Send(new GetSpecializationsQuery(IncludeInactive: false), ct);

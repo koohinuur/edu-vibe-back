@@ -1,9 +1,11 @@
+using LMS.Application.Common.Abstractions;
 using LMS.Application.Common.Models;
 using LMS.Application.Common.Security;
 using LMS.Application.Features.Analytics;
 using LMS.Application.Features.Classes;
 using LMS.Application.Features.ClassResources;
 using LMS.Application.Features.Sessions;
+using LMS.Application.Features.Students;
 using LMS.WebApi.Common;
 using LMS.WebApi.Security;
 using MediatR;
@@ -226,5 +228,78 @@ public sealed class ClassesController(ISender sender) : ControllerBase
         return r.Success
             ? Ok(ApiResponse<object>.Ok(new { }, r.Message))
             : BadRequest(ApiResponse<object>.Fail(r.Message ?? "Failed"));
+    }
+
+    /// <summary>
+    /// Bulk-enrols students into the class from an uploaded .xlsx whose first
+    /// column holds emails (a "Email" header row is auto-skipped). Existing users
+    /// are reused; unknown emails get a new student account with a generated
+    /// password. Responds with a downloadable result workbook (Summary + Results
+    /// sheets: Email / Password / Status / Failure Reason) and mirrors the four
+    /// headline counts in X-Import-* response headers. On success the body is the
+    /// spreadsheet; a bad request/not-found returns the usual JSON envelope.
+    /// </summary>
+    [HttpPost("{id:guid}/students/import")]
+    [PermissionAuthorize(Permissions.Classes.Enroll)]
+    public async Task<IActionResult> ImportStudents(
+        Guid id,
+        IFormFile file,
+        [FromServices] IExcelService excel,
+        CancellationToken ct)
+    {
+        if (file is null || file.Length == 0)
+            return BadRequest(ApiResponse<object>.Fail("No file was uploaded."));
+
+        IReadOnlyList<string> emails;
+        try
+        {
+            await using var stream = file.OpenReadStream();
+            emails = excel.ReadFirstColumn(stream);
+        }
+        catch
+        {
+            return BadRequest(ApiResponse<object>.Fail("Could not read the file. Upload a valid .xlsx workbook."));
+        }
+
+        // A leading header cell ("Email", "E-mail", …) has no '@' — drop it so the
+        // header isn't treated as an address.
+        if (emails.Count > 0 && !emails[0].Contains('@'))
+            emails = emails.Skip(1).ToList();
+
+        var r = await sender.Send(new BulkImportStudentsCommand(id, emails), ct);
+        if (!r.Success || r.Data is null)
+            return r.ErrorCode == "NOT_FOUND"
+                ? NotFound(ApiResponse<object>.Fail(r.Message ?? "Not found"))
+                : BadRequest(ApiResponse<object>.Fail(r.Message ?? "Failed"));
+
+        var result = r.Data;
+
+        var summary = new ExcelSheet(
+            "Summary",
+            new[] { "Metric", "Count" },
+            new List<IReadOnlyList<string?>>
+            {
+                new[] { "Total Rows", result.TotalRows.ToString() },
+                new[] { "Created Users", result.CreatedUsers.ToString() },
+                new[] { "Existing Users Added", result.ExistingUsersAdded.ToString() },
+                new[] { "Failed Rows", result.FailedRows.ToString() },
+            });
+
+        var results = new ExcelSheet(
+            "Results",
+            new[] { "Email", "Generated Password", "Status", "Failure Reason" },
+            result.Rows
+                .Select(row => (IReadOnlyList<string?>)new[] { row.Email, row.Password, row.Status, row.Reason })
+                .ToList());
+
+        var bytes = excel.Build(new[] { summary, results });
+
+        Response.Headers["X-Import-Total"] = result.TotalRows.ToString();
+        Response.Headers["X-Import-Created"] = result.CreatedUsers.ToString();
+        Response.Headers["X-Import-Existing"] = result.ExistingUsersAdded.ToString();
+        Response.Headers["X-Import-Failed"] = result.FailedRows.ToString();
+
+        var fileName = $"import-result-{DateTime.UtcNow:yyyyMMdd-HHmmss}.xlsx";
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
     }
 }

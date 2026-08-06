@@ -22,6 +22,7 @@ public sealed class OfficeInfoController(ISender sender) : ControllerBase
     /// <summary>Anonymous read for the marketing site. Always returns a row (placeholder if unset).</summary>
     [HttpGet("public")]
     [AllowAnonymous]
+    [Microsoft.AspNetCore.OutputCaching.OutputCache(PolicyName = LMS.WebApi.Common.PublicReadCacheHeaderPolicy.Name)]
     public async Task<ActionResult<ApiResponse<OfficeInfoDto>>> Public(CancellationToken ct)
     {
         var r = await sender.Send(new GetOfficeInfoQuery(), ct);

@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LMS.Application.Features.Curriculum;
 
-public sealed class CurriculumHandlers(IApplicationDbContext db) :
+public sealed class CurriculumHandlers(IApplicationDbContext db, ICurrentUserService currentUser) :
     IRequestHandler<GetCurriculumTemplatesQuery, Result<IReadOnlyCollection<CurriculumTemplateSummaryDto>>>,
     IRequestHandler<GetCurriculumTreeQuery, Result<CurriculumTreeDto>>,
     IRequestHandler<AssignCurriculumToClassCommand, Result<ClassCurriculumDto>>,
@@ -72,6 +72,8 @@ public sealed class CurriculumHandlers(IApplicationDbContext db) :
     {
         var cls = await db.Classes.FirstOrDefaultAsync(c => c.Id == request.ClassId, ct);
         if (cls is null) return Result<ClassCurriculumDto>.Fail("NOT_FOUND", "Class not found.");
+        if (!CurriculumAuthorization.CanManageClass(currentUser, cls))
+            return Result<ClassCurriculumDto>.Fail("FORBIDDEN", "Only the class teacher or an admin can manage this class's curriculum.");
 
         var template = await db.CurriculumTemplates.AsNoTracking().FirstOrDefaultAsync(t => t.Id == request.TemplateId, ct);
         if (template is null) return Result<ClassCurriculumDto>.Fail("NOT_FOUND", "Template not found.");

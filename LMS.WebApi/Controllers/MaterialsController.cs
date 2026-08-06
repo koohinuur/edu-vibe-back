@@ -52,6 +52,7 @@ public sealed class MaterialsController(
     /// </summary>
     [HttpGet("public")]
     [AllowAnonymous]
+    [Microsoft.AspNetCore.OutputCaching.OutputCache(PolicyName = LMS.WebApi.Common.PublicReadCacheHeaderPolicy.Name)]
     public async Task<ActionResult<ApiResponse<IReadOnlyCollection<MaterialDto>>>> Public(
         [FromQuery] int take = 24, CancellationToken ct = default)
     {

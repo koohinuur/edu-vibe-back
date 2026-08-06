@@ -22,6 +22,8 @@ public sealed class SalaryCalculatorTests
         => new(teacherDefault, classes, punishments);
 
     private static ClassRevenue Cls(decimal revenue, decimal? overridePct = null) => new(C(), revenue, overridePct);
+    private static ClassRevenue FixedCls(decimal revenue, decimal fixedAmount, decimal? overridePct = null)
+        => new(C(), revenue, overridePct, fixedAmount);
     private static PunishmentLine Fixed(decimal amount) => new(C(), PunishmentType.FixedAmount, amount, "fixed");
     private static PunishmentLine Pct(decimal percent) => new(C(), PunishmentType.Percentage, percent, "pct");
 
@@ -110,6 +112,43 @@ public sealed class SalaryCalculatorTests
         r.BaseSalary.Should().Be(0m);
         // a fixed punishment against a 0 base still clamps to 0 (no debt)
         r.NetSalary.Should().Be(0m);
+    }
+
+    // (h) a class with a fixed amount pays that flat sum, ignoring revenue + percentage
+    [Fact]
+    public void Fixed_amount_class_pays_flat_and_ignores_percentage()
+    {
+        // Even with 1000 revenue and a 70% override, the fixed 300 is what pays.
+        var r = _calc.Calculate(Input(50m, new[] { FixedCls(1000m, 300m, overridePct: 70m) }));
+
+        var line = r.ClassLines.Single();
+        line.IsFixed.Should().BeTrue();
+        line.Amount.Should().Be(300m);
+        line.Percentage.Should().Be(0m);
+        r.BaseSalary.Should().Be(300m);
+        r.NetSalary.Should().Be(300m);
+    }
+
+    // (i) fixed amount applies even when the class collected zero revenue this month
+    [Fact]
+    public void Fixed_amount_applies_with_zero_revenue()
+    {
+        var r = _calc.Calculate(Input(50m, new[] { FixedCls(0m, 250m) }));
+
+        r.ClassLines.Single().Amount.Should().Be(250m);
+        r.BaseSalary.Should().Be(250m);
+        r.NetSalary.Should().Be(250m);
+    }
+
+    // (j) mix of a fixed-amount class and a percentage class sums both
+    [Fact]
+    public void Fixed_and_percentage_classes_sum_together()
+    {
+        // fixed class = 300; pct class = 1000 × 50% = 500; base = 800
+        var r = _calc.Calculate(Input(50m, new[] { FixedCls(2000m, 300m), Cls(1000m) }));
+
+        r.BaseSalary.Should().Be(800m);
+        r.NetSalary.Should().Be(800m);
     }
 
     // Bonus: multi-class with mixed override + default, and the auditable per-punishment list

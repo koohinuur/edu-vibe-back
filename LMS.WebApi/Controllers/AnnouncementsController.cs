@@ -20,6 +20,7 @@ public sealed class AnnouncementsController(ISender sender, ICurrentUserService 
     /// </summary>
     [HttpGet("public")]
     [AllowAnonymous]
+    [Microsoft.AspNetCore.OutputCaching.OutputCache(PolicyName = LMS.WebApi.Common.PublicReadCacheHeaderPolicy.Name)]
     public async Task<ActionResult<ApiResponse<IReadOnlyCollection<AnnouncementDto>>>> Public(
         [FromQuery] int take = 10, CancellationToken ct = default)
     {

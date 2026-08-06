@@ -14,6 +14,7 @@ public sealed class MarketingVideosController(ISender sender) : ControllerBase
 {
     [HttpGet("public")]
     [AllowAnonymous]
+    [Microsoft.AspNetCore.OutputCaching.OutputCache(PolicyName = LMS.WebApi.Common.PublicReadCacheHeaderPolicy.Name)]
     public async Task<ActionResult<ApiResponse<IReadOnlyCollection<MarketingVideoDto>>>> Public(CancellationToken ct)
     {
         var r = await sender.Send(new GetPublicMarketingVideosQuery(), ct);

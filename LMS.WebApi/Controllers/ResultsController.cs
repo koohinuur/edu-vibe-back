@@ -14,6 +14,7 @@ public sealed class ResultsController(ISender sender) : ControllerBase
 {
     [HttpGet("results")]
     [AllowAnonymous]
+    [Microsoft.AspNetCore.OutputCaching.OutputCache(PolicyName = LMS.WebApi.Common.PublicReadCacheHeaderPolicy.Name)]
     public async Task<ActionResult<ApiResponse<IReadOnlyCollection<ResultDto>>>> GetAll(
         [FromQuery] string? search,
         [FromQuery] LMS.Domain.Enums.ExamType? examType,
@@ -37,6 +38,7 @@ public sealed class ResultsController(ISender sender) : ControllerBase
 
     [HttpGet("results/featured")]
     [AllowAnonymous]
+    [Microsoft.AspNetCore.OutputCaching.OutputCache(PolicyName = LMS.WebApi.Common.PublicReadCacheHeaderPolicy.Name)]
     public async Task<ActionResult<ApiResponse<IReadOnlyCollection<ResultDto>>>> Featured([FromQuery] int limit = 6,
         CancellationToken cancellationToken = default)
     {
