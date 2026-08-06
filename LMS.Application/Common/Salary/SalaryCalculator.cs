@@ -8,8 +8,11 @@ namespace LMS.Application.Common.Salary;
 /// it pure makes the money logic unit-testable.
 ///
 /// Rules (locked):
-///  • Effective class % = per-class override ?? teacher default ?? 0.
-///  • Base salary = Σ (classRevenue × effective% / 100).
+///  • A class with an assigned FixedAmount pays exactly that amount (percentage
+///    and revenue are ignored for that class).
+///  • Otherwise: effective class % = per-class override ?? teacher default ?? 0,
+///    and the class pays classRevenue × effective% / 100.
+///  • Base salary = Σ of the per-class amounts (fixed or percentage-derived).
 ///  • FixedAmount punishment → subtract its Value.
 ///  • Percentage punishment → subtract (Value/100 × baseSalary) — ALWAYS computed
 ///    from the original base salary, never the post-fixed remainder.
@@ -25,8 +28,12 @@ public sealed record SalaryInput(
     IReadOnlyList<ClassRevenue> ClassRevenues,
     IReadOnlyList<PunishmentLine> Punishments);
 
-/// <summary>One class's paid revenue for the month + its optional per-class % override.</summary>
-public sealed record ClassRevenue(Guid ClassId, decimal Revenue, decimal? OverridePercentage);
+/// <summary>
+/// One class's paid revenue for the month + its optional per-class % override and
+/// optional flat <see cref="FixedAmount"/>. When <see cref="FixedAmount"/> is set,
+/// the class pays that amount flat and revenue/percentage are ignored for it.
+/// </summary>
+public sealed record ClassRevenue(Guid ClassId, decimal Revenue, decimal? OverridePercentage, decimal? FixedAmount = null);
 
 public sealed record PunishmentLine(Guid Id, PunishmentType Type, decimal Value, string Title);
 
@@ -39,7 +46,11 @@ public sealed record SalaryBreakdown(
     decimal TotalPercentageDeducted,
     decimal NetSalary);
 
-public sealed record ClassSalaryLine(Guid ClassId, decimal Revenue, decimal Percentage, decimal Amount);
+/// <summary>
+/// A single class's contribution to base salary. <see cref="IsFixed"/> is true when
+/// the amount came from an assigned flat fixed payment rather than revenue × %.
+/// </summary>
+public sealed record ClassSalaryLine(Guid ClassId, decimal Revenue, decimal Percentage, decimal Amount, bool IsFixed = false);
 
 /// <summary>A single punishment with its individually-computed deduction — for the auditable statement.</summary>
 public sealed record AppliedPunishment(Guid Id, string Title, PunishmentType Type, decimal Value, decimal Deduction);
@@ -50,6 +61,11 @@ public sealed class SalaryCalculator : ISalaryCalculator
     {
         var classLines = input.ClassRevenues.Select(c =>
         {
+            // A class with an assigned fixed amount pays that flat sum — percentage
+            // and revenue are ignored for it.
+            if (c.FixedAmount is { } fixedAmount)
+                return new ClassSalaryLine(c.ClassId, c.Revenue, 0m, Round(fixedAmount), IsFixed: true);
+
             var pct = c.OverridePercentage ?? input.TeacherDefaultPercentage ?? 0m;
             return new ClassSalaryLine(c.ClassId, c.Revenue, pct, Round(c.Revenue * pct / 100m));
         }).ToList();

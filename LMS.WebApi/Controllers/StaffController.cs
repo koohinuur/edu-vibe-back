@@ -117,6 +117,7 @@ public sealed class StaffController(ISender sender) : ControllerBase
     /// </summary>
     [HttpGet("public")]
     [AllowAnonymous]
+    [Microsoft.AspNetCore.OutputCaching.OutputCache(PolicyName = LMS.WebApi.Common.PublicReadCacheHeaderPolicy.Name)]
     public async Task<ActionResult<ApiResponse<IReadOnlyCollection<PublicTeacherDto>>>> Public(
         [FromQuery] int take = 30, CancellationToken ct = default)
     {

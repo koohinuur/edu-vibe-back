@@ -309,6 +309,8 @@ public sealed class TeacherSalaryConfigConfiguration : IEntityTypeConfiguration<
         b.ToTable("teacher_salary_configs");
         b.HasKey(x => x.Id);
         b.Property(x => x.Percentage).HasPrecision(5, 2);
+        // Flat per-class override; null keeps the percentage-of-revenue path.
+        b.Property(x => x.FixedAmount).HasPrecision(12, 2);
         // Uniqueness on (TeacherId, ClassId) with NULLS NOT DISTINCT is enforced
         // by the migration (EF can't express NULLS NOT DISTINCT) — one default
         // + one per-class row. Plain index here for lookups.

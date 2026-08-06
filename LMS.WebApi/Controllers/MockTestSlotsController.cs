@@ -19,6 +19,7 @@ public sealed class MockTestSlotsController(ISender sender) : ControllerBase
 {
     [HttpGet("public")]
     [AllowAnonymous]
+    [Microsoft.AspNetCore.OutputCaching.OutputCache(PolicyName = LMS.WebApi.Common.PublicReadCacheHeaderPolicy.Name)]
     public async Task<ActionResult<ApiResponse<IReadOnlyCollection<MockTestSlotDto>>>> Public(CancellationToken ct)
     {
         var r = await sender.Send(new GetPublicMockTestSlotsQuery(), ct);

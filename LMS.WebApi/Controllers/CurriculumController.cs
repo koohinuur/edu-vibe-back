@@ -19,6 +19,22 @@ namespace LMS.WebApi.Controllers;
 [Authorize]
 public sealed class CurriculumController(ISender sender) : ControllerBase
 {
+    /// <summary>
+    /// Maps a self-scoped handler result to HTTP: FORBIDDEN → 403, NOT_FOUND → 404,
+    /// any other failure → 400. Used by the class-curriculum endpoints that
+    /// authorize in the handler (admin/office/director OR the class teacher) rather
+    /// than via a static permission attribute.
+    /// </summary>
+    private ActionResult<ApiResponse<T>> Map<T>(Result<T> r) =>
+        r.Success
+            ? Ok(ApiResponse<T>.Ok(r.Data, r.Message))
+            : r.ErrorCode switch
+            {
+                "NOT_FOUND" => NotFound(ApiResponse<T>.Fail(r.Message ?? "Not found")),
+                "FORBIDDEN" => StatusCode(StatusCodes.Status403Forbidden, ApiResponse<T>.Fail(r.Message ?? "Forbidden")),
+                _ => BadRequest(ApiResponse<T>.Fail(r.Message ?? "Failed")),
+            };
+
     /// <summary>All published templates (optionally filtered by category) with module/unit/lesson counts.</summary>
     [HttpGet("templates")]
     public async Task<ActionResult<ApiResponse<IReadOnlyCollection<CurriculumTemplateSummaryDto>>>> Templates(
@@ -199,14 +215,13 @@ public sealed class CurriculumController(ISender sender) : ControllerBase
     /// Bind a template to a class and auto-map its upcoming sessions to the
     /// template's lessons. Body: {"classId": "...", "templateId": "..."}.
     /// </summary>
+    // NO permission attribute: like the Course Builder endpoints, a teacher must be
+    // able to set up their OWN class's curriculum. Authorization is self-scoped in
+    // the handler (admin/office/director OR the class's teacher) → FORBIDDEN ⇒ 403.
     [HttpPost("assign")]
-    [PermissionAuthorize(Permissions.Classes.Update)]
     public async Task<ActionResult<ApiResponse<ClassCurriculumDto>>> Assign(
         [FromBody] AssignCurriculumToClassCommand cmd, CancellationToken ct)
-    {
-        var r = await sender.Send(cmd, ct);
-        return r.ToApiResult();
-    }
+        => Map(await sender.Send(cmd, ct));
 
     /// <summary>
     /// F6: suggests the class's current curriculum position from its schedule
@@ -214,12 +229,8 @@ public sealed class CurriculumController(ISender sender) : ControllerBase
     /// admin can edit the suggestion; with no pattern, CanSuggest is false.
     /// </summary>
     [HttpGet("class/{classId:guid}/suggest-position")]
-    [PermissionAuthorize(Permissions.Classes.Update)]
     public async Task<ActionResult<ApiResponse<SuggestPositionDto>>> SuggestPosition(Guid classId, CancellationToken ct)
-    {
-        var r = await sender.Send(new SuggestPositionQuery(classId), ct);
-        return r.ToApiResult();
-    }
+        => Map(await sender.Send(new SuggestPositionQuery(classId), ct));
 
     /// <summary>
     /// F6 (LIVE DATA): marks every lesson before the chosen one Completed via
@@ -228,13 +239,9 @@ public sealed class CurriculumController(ISender sender) : ControllerBase
     /// Body: {"lessonId":"..."}.
     /// </summary>
     [HttpPost("class/{classId:guid}/set-position")]
-    [PermissionAuthorize(Permissions.Classes.Update)]
     public async Task<ActionResult<ApiResponse<SetPositionResultDto>>> SetPosition(
         Guid classId, [FromBody] SetPositionCommand cmd, CancellationToken ct)
-    {
-        var r = await sender.Send(cmd with { ClassId = classId }, ct);
-        return r.ToApiResult();
-    }
+        => Map(await sender.Send(cmd with { ClassId = classId }, ct));
 
     /// <summary>A class's dated curriculum: progress + today + next + the full plan.</summary>
     [HttpGet("class/{classId:guid}")]
@@ -292,17 +299,9 @@ public sealed class CurriculumController(ISender sender) : ControllerBase
     /// "startDate","endDate","slots":[{"startsAt","endsAt"}],"roomId"}.
     /// </summary>
     [HttpPost("class/{classId:guid}/generate-course")]
-    [PermissionAuthorize(Permissions.Classes.Update)]
     public async Task<ActionResult<ApiResponse<GenerateCourseResultDto>>> GenerateCourse(
         Guid classId, [FromBody] GenerateCourseCommand cmd, CancellationToken ct)
-    {
-        var r = await sender.Send(cmd with { ClassId = classId }, ct);
-        return r.Success
-            ? Ok(ApiResponse<GenerateCourseResultDto>.Ok(r.Data, r.Message))
-            : r.ErrorCode == "NOT_FOUND"
-                ? NotFound(ApiResponse<GenerateCourseResultDto>.Fail(r.Message ?? "Not found"))
-                : BadRequest(ApiResponse<GenerateCourseResultDto>.Fail(r.Message ?? "Failed"));
-    }
+        => Map(await sender.Send(cmd with { ClassId = classId }, ct));
 
     [HttpPost("units")]
     public async Task<ActionResult<ApiResponse<ClassCourseBuilderDto>>> CreateUnit(

@@ -55,8 +55,15 @@ public sealed class GetStudentsQueryHandler(IApplicationDbContext db, ICurrentUs
         }
 
         var total = await query.CountAsync(cancellationToken);
+        // Status-first ordering (IsActive DESC): Active students first, then
+        // Inactive/Blocked, then by full name (First, Last) ascending with email
+        // as the final tiebreaker. Ordered in SQL before Skip/Take so it works
+        // with search + pagination.
         var items = await query
-            .OrderBy(x => x.u.Email)
+            .OrderByDescending(x => x.u.Status == LMS.Domain.Enums.UserStatus.Active)
+            .ThenBy(x => x.s.FirstName)
+            .ThenBy(x => x.s.LastName)
+            .ThenBy(x => x.u.Email)
             .Skip(page.Skip)
             .Take(page.NormalizedPageSize)
             .Select(x => new StudentDto(

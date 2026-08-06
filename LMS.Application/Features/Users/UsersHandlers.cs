@@ -24,8 +24,14 @@ public sealed class GetUsersQueryHandler(IApplicationDbContext db)
         // Paged user rows first; then a single in-memory-joined batch fetches
         // the role codes for ONLY the visible page (the previous shape pulled
         // the entire users + user_roles tables every call).
+        // Status-first ordering: Active accounts surface before Inactive/Blocked
+        // ("IsActive DESC"), then alphabetically by email as the stable secondary
+        // key ("FullName ASC" isn't available on the user row — names live on the
+        // Student/Staff profiles). Ordering happens in SQL BEFORE Skip/Take so it
+        // composes correctly with search + pagination.
         var users = await query
-            .OrderBy(u => u.Email)
+            .OrderByDescending(u => u.Status == UserStatus.Active)
+            .ThenBy(u => u.Email)
             .Skip(page.Skip)
             .Take(page.NormalizedPageSize)
             .Select(u => new { u.Id, u.Email, u.Status })
