@@ -8,6 +8,7 @@ using LMS.WebApi.Middleware;
 using LMS.WebApi.Security;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
@@ -24,7 +25,32 @@ builder.Host.UseSerilog((ctx, cfg) => cfg.ReadFrom.Configuration(ctx.Configurati
 // break clients), but the LMS admin frontend types use numeric enum constants
 // today, so flipping this here would be a coordinated breaking change. Track
 // as a future migration.
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    // Automatic model-binding / model-state failures ([ApiController]) default to
+    // a ProblemDetails body whose only human field is `title` — the LMS clients
+    // read `message`, so they fell back to the raw HTTP status text ("Bad
+    // Request") and hid the real reason (e.g. a missing/invalid field on login).
+    // Return the same ApiResponse envelope the rest of the API uses so the actual
+    // validation message reaches the client.
+    .ConfigureApiBehaviorOptions(options =>
+    {
+        options.InvalidModelStateResponseFactory = context =>
+        {
+            var errors = context.ModelState
+                .Where(kv => kv.Value is { Errors.Count: > 0 })
+                .ToDictionary(
+                    kv => kv.Key,
+                    kv => kv.Value!.Errors.Select(e => e.ErrorMessage).ToArray());
+
+            var firstMessage = errors.Values
+                .SelectMany(m => m)
+                .FirstOrDefault(m => !string.IsNullOrWhiteSpace(m))
+                ?? "One or more fields are invalid.";
+
+            return new BadRequestObjectResult(
+                LMS.WebApi.Common.ApiResponse<object>.Fail(firstMessage, errors));
+        };
+    });
 
 // ---- Output caching -------------------------------------------------------
 // Short-lived server-side cache for the anonymous marketing read endpoints so
