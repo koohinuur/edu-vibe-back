@@ -27,3 +27,12 @@ public sealed class GetStudentDetailQueryValidator : AbstractValidator<GetStuden
         RuleFor(x => x.StudentProfileId).NotEmpty();
     }
 }
+
+public sealed class BulkImportStudentsCommandValidator : AbstractValidator<BulkImportStudentsCommand>
+{
+    public BulkImportStudentsCommandValidator()
+    {
+        RuleFor(x => x.ClassId).NotEmpty();
+        RuleFor(x => x.Emails).NotNull();
+    }
+}

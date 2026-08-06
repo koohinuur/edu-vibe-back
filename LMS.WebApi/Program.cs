@@ -2,6 +2,7 @@ using System.Threading.RateLimiting;
 using LMS.Application;
 using LMS.Infrastructure;
 using LMS.Infrastructure.Persistence;
+using LMS.WebApi.Common;
 using LMS.WebApi.Extensions;
 using LMS.WebApi.Middleware;
 using LMS.WebApi.Security;
@@ -24,6 +25,20 @@ builder.Host.UseSerilog((ctx, cfg) => cfg.ReadFrom.Configuration(ctx.Configurati
 // today, so flipping this here would be a coordinated breaking change. Track
 // as a future migration.
 builder.Services.AddControllers();
+
+// ---- Output caching -------------------------------------------------------
+// Short-lived server-side cache for the anonymous marketing read endpoints so
+// the marketing site's repeated fan-out doesn't re-query Postgres on every page
+// load. Applied per-endpoint via [OutputCache(PolicyName = PublicReadCacheHeaderPolicy.Name)].
+builder.Services.AddOutputCache(options =>
+{
+    options.AddPolicy(PublicReadCacheHeaderPolicy.Name, b => b
+        .Expire(TimeSpan.FromSeconds(PublicReadCacheHeaderPolicy.DurationSeconds))
+        // Vary so ?take=/?limit= variants are stored separately. CORS already
+        // emits `Vary: Origin`, which OutputCache honours, so each allowed origin
+        // gets its own entry with the right ACAO header without an explicit rule.
+        .SetVaryByQuery("take", "limit", "pageSize", "search", "examType", "featured", "sortBy"));
+});
 
 // ---- Layer registration ---------------------------------------------------
 builder.Services.AddApplication();
@@ -198,7 +213,38 @@ if (app.Environment.IsDevelopment())
 
 // CORS must come BEFORE auth and rate limiter so preflight OPTIONS requests
 // short-circuit cleanly without being rate-limited or rejected as unauthorized.
+app.UseRouting();
+
 app.UseCors();
+
+// Stamp a browser Cache-Control on the anonymous marketing reads (endpoints
+// tagged with the PublicRead output-cache policy) so a single browser / CDN also
+// stops re-requesting after the first fetch. Runs BEFORE UseOutputCache so the
+// header is captured into the stored entry and replayed on cache hits.
+app.Use(async (context, nextMw) =>
+{
+    var outputCache = context.GetEndpoint()?.Metadata
+        .GetMetadata<Microsoft.AspNetCore.OutputCaching.OutputCacheAttribute>();
+    if (outputCache?.PolicyName == PublicReadCacheHeaderPolicy.Name)
+    {
+        context.Response.OnStarting(() =>
+        {
+            var resp = context.Response;
+            if (resp.StatusCode == StatusCodes.Status200OK &&
+                !resp.Headers.ContainsKey(Microsoft.Net.Http.Headers.HeaderNames.CacheControl))
+            {
+                resp.Headers.CacheControl = $"public, max-age={PublicReadCacheHeaderPolicy.DurationSeconds}";
+            }
+            return Task.CompletedTask;
+        });
+    }
+    await nextMw();
+});
+
+// Output caching runs after routing + CORS (so it can see the endpoint's
+// [OutputCache] metadata and cached entries carry the right CORS headers) and
+// before the endpoints it serves. Anonymous marketing reads opt in via [OutputCache].
+app.UseOutputCache();
 
 app.UseRateLimiter();
 app.UseAuthentication();

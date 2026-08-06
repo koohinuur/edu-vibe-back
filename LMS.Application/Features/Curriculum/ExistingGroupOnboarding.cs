@@ -32,15 +32,19 @@ public sealed record SetPositionResultDto(
 /// <summary>Marks every lesson BEFORE the chosen one Completed via backfilled sessions (reconciled).</summary>
 public sealed record SetPositionCommand(Guid ClassId, Guid LessonId) : IRequest<Result<SetPositionResultDto>>;
 
-public sealed class ExistingGroupOnboardingHandlers(IApplicationDbContext db)
+public sealed class ExistingGroupOnboardingHandlers(IApplicationDbContext db, ICurrentUserService currentUser)
     : IRequestHandler<SuggestPositionQuery, Result<SuggestPositionDto>>,
       IRequestHandler<SetPositionCommand, Result<SetPositionResultDto>>
 {
     public async Task<Result<SuggestPositionDto>> Handle(SuggestPositionQuery request, CancellationToken ct)
     {
-        var templateId = await db.Classes.AsNoTracking()
-            .Where(c => c.Id == request.ClassId).Select(c => c.CurriculumTemplateId).FirstOrDefaultAsync(ct);
-        if (templateId is not { } tid)
+        var cls = await db.Classes.AsNoTracking()
+            .Where(c => c.Id == request.ClassId)
+            .Select(c => new { c.CurriculumTemplateId, c.TeacherUserId }).FirstOrDefaultAsync(ct);
+        if (cls is null) return Result<SuggestPositionDto>.Fail("NOT_FOUND", "Class not found.");
+        if (!CurriculumAuthorization.CanManageClass(currentUser, cls.TeacherUserId))
+            return Result<SuggestPositionDto>.Fail("FORBIDDEN", "Only the class teacher or an admin can manage this class's curriculum.");
+        if (cls.CurriculumTemplateId is not { } tid)
             return Result<SuggestPositionDto>.Fail("VALIDATION", "This class has no curriculum assigned yet.");
 
         var ordered = await OrderedLessonsAsync(tid, ct);
@@ -76,9 +80,13 @@ public sealed class ExistingGroupOnboardingHandlers(IApplicationDbContext db)
 
     public async Task<Result<SetPositionResultDto>> Handle(SetPositionCommand request, CancellationToken ct)
     {
-        var templateId = await db.Classes.AsNoTracking()
-            .Where(c => c.Id == request.ClassId).Select(c => c.CurriculumTemplateId).FirstOrDefaultAsync(ct);
-        if (templateId is not { } tid)
+        var cls = await db.Classes.AsNoTracking()
+            .Where(c => c.Id == request.ClassId)
+            .Select(c => new { c.CurriculumTemplateId, c.TeacherUserId }).FirstOrDefaultAsync(ct);
+        if (cls is null) return Result<SetPositionResultDto>.Fail("NOT_FOUND", "Class not found.");
+        if (!CurriculumAuthorization.CanManageClass(currentUser, cls.TeacherUserId))
+            return Result<SetPositionResultDto>.Fail("FORBIDDEN", "Only the class teacher or an admin can manage this class's curriculum.");
+        if (cls.CurriculumTemplateId is not { } tid)
             return Result<SetPositionResultDto>.Fail("VALIDATION", "This class has no curriculum assigned yet.");
 
         var ordered = await OrderedLessonsAsync(tid, ct);

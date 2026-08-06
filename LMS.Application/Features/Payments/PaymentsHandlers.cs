@@ -19,6 +19,7 @@ public sealed class PaymentsHandlers(IApplicationDbContext db, ISalaryCalculator
     IRequestHandler<GetRevenueSummaryQuery, Result<decimal>>,
     IRequestHandler<GetTeacherSalaryQuery, Result<SalaryBreakdown>>,
     IRequestHandler<SetTeacherSalaryConfigCommand, Result<TeacherSalaryConfigDto>>,
+    IRequestHandler<SetTeacherClassFixedAmountCommand, Result<IReadOnlyCollection<TeacherSalaryConfigDto>>>,
     IRequestHandler<GetTeacherSalaryConfigsQuery, Result<IReadOnlyCollection<TeacherSalaryConfigDto>>>,
     IRequestHandler<DeleteTeacherSalaryConfigCommand, Result>,
     IRequestHandler<SetClassMonthlyPriceCommand, Result>
@@ -156,9 +157,19 @@ public sealed class PaymentsHandlers(IApplicationDbContext db, ISalaryCalculator
         var defaultPct = configs.FirstOrDefault(s => s.ClassId == null)?.Percentage;
         var overrideByClass = configs.Where(s => s.ClassId != null)
             .ToDictionary(s => s.ClassId!.Value, s => s.Percentage);
+        // Per-class flat overrides. A fixed amount is paid regardless of revenue,
+        // so a fixed-amount class must appear in the breakdown even with zero paid
+        // revenue this month.
+        var fixedByClass = configs.Where(s => s.ClassId != null && s.FixedAmount != null)
+            .ToDictionary(s => s.ClassId!.Value, s => s.FixedAmount!.Value);
 
-        var classRevenues = revenueByClass.Select(r => new ClassRevenue(
-            r.ClassId, r.Revenue, overrideByClass.TryGetValue(r.ClassId, out var ov) ? ov : (decimal?)null)).ToList();
+        var revenueLookup = revenueByClass.ToDictionary(r => r.ClassId, r => r.Revenue);
+        var classIds2 = revenueLookup.Keys.Union(fixedByClass.Keys);
+        var classRevenues = classIds2.Select(cid => new ClassRevenue(
+            cid,
+            revenueLookup.TryGetValue(cid, out var rev) ? rev : 0m,
+            overrideByClass.TryGetValue(cid, out var ov) ? ov : (decimal?)null,
+            fixedByClass.TryGetValue(cid, out var fx) ? fx : (decimal?)null)).ToList();
 
         var punishments = (await db.Punishments.AsNoTracking()
                 .Where(p => p.TeacherId == request.TeacherId && p.PeriodMonth == month).ToListAsync(ct))
@@ -188,7 +199,7 @@ public sealed class PaymentsHandlers(IApplicationDbContext db, ISalaryCalculator
             }
             await db.SaveChangesAsync(ct);
             return Result<TeacherSalaryConfigDto>.Ok(
-                new TeacherSalaryConfigDto(existing.Id, existing.TeacherId, existing.ClassId, existing.Percentage), "Saved.");
+                new TeacherSalaryConfigDto(existing.Id, existing.TeacherId, existing.ClassId, existing.Percentage, existing.FixedAmount), "Saved.");
         }
         catch (DomainException ex)
         {
@@ -197,11 +208,71 @@ public sealed class PaymentsHandlers(IApplicationDbContext db, ISalaryCalculator
     }
 
     public async Task<Result<IReadOnlyCollection<TeacherSalaryConfigDto>>> Handle(
+        SetTeacherClassFixedAmountCommand request, CancellationToken ct)
+    {
+        if (!await db.Users.AsNoTracking().AnyAsync(u => u.Id == request.TeacherId, ct))
+            return Result<IReadOnlyCollection<TeacherSalaryConfigDto>>.Fail("NOT_FOUND", "Teacher not found.");
+
+        var classIds = request.ClassIds.Distinct().ToList();
+        if (classIds.Count == 0)
+            return Result<IReadOnlyCollection<TeacherSalaryConfigDto>>.Fail("VALIDATION", "Select at least one class.");
+
+        // Every target class must actually be taught by this teacher — assigning a
+        // fixed payment for a class the teacher doesn't run makes no sense and would
+        // orphan the row.
+        var teacherClassIds = await db.Classes.AsNoTracking()
+            .Where(c => c.TeacherUserId == request.TeacherId && classIds.Contains(c.Id))
+            .Select(c => c.Id).ToListAsync(ct);
+        var unknown = classIds.Except(teacherClassIds).ToList();
+        if (unknown.Count > 0)
+            return Result<IReadOnlyCollection<TeacherSalaryConfigDto>>.Fail(
+                "VALIDATION", "One or more classes are not taught by this teacher.");
+
+        // Load the existing per-class rows in one query so the upsert never races
+        // itself and the unique (TeacherId, ClassId) index is honoured (no duplicates).
+        var existingRows = await db.TeacherSalaryConfigs
+            .Where(s => s.TeacherId == request.TeacherId && s.ClassId != null && classIds.Contains(s.ClassId!.Value))
+            .ToListAsync(ct);
+        var existingByClass = existingRows.ToDictionary(s => s.ClassId!.Value);
+
+        try
+        {
+            foreach (var classId in classIds)
+            {
+                if (existingByClass.TryGetValue(classId, out var row))
+                {
+                    row.SetFixedAmount(request.FixedAmount);
+                }
+                else
+                {
+                    // A brand-new fixed-amount row starts at 0% — the fixed amount
+                    // is what pays, and percentage is only consulted when no fixed
+                    // amount is set (which won't happen here unless later cleared).
+                    var created = new TeacherSalaryConfig(request.TeacherId, classId, 0m, request.FixedAmount);
+                    await db.TeacherSalaryConfigs.AddAsync(created, ct);
+                    existingByClass[classId] = created;
+                }
+            }
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DomainException ex)
+        {
+            return Result<IReadOnlyCollection<TeacherSalaryConfigDto>>.Fail("VALIDATION", ex.Message);
+        }
+
+        var dtos = classIds
+            .Select(cid => existingByClass[cid])
+            .Select(s => new TeacherSalaryConfigDto(s.Id, s.TeacherId, s.ClassId, s.Percentage, s.FixedAmount))
+            .ToList();
+        return Result<IReadOnlyCollection<TeacherSalaryConfigDto>>.Ok(dtos, "Saved.");
+    }
+
+    public async Task<Result<IReadOnlyCollection<TeacherSalaryConfigDto>>> Handle(
         GetTeacherSalaryConfigsQuery request, CancellationToken ct)
     {
         var rows = await db.TeacherSalaryConfigs.AsNoTracking()
             .Where(s => s.TeacherId == request.TeacherId)
-            .Select(s => new TeacherSalaryConfigDto(s.Id, s.TeacherId, s.ClassId, s.Percentage))
+            .Select(s => new TeacherSalaryConfigDto(s.Id, s.TeacherId, s.ClassId, s.Percentage, s.FixedAmount))
             .ToListAsync(ct);
         return Result<IReadOnlyCollection<TeacherSalaryConfigDto>>.Ok(rows);
     }

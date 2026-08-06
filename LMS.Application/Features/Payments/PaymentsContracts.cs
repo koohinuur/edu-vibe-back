@@ -38,11 +38,22 @@ public sealed record GetRevenueSummaryQuery : IRequest<Result<decimal>>;
 public sealed record GetTeacherSalaryQuery(Guid TeacherId, DateOnly Month)
     : IRequest<Result<LMS.Application.Common.Salary.SalaryBreakdown>>;
 
-public sealed record TeacherSalaryConfigDto(Guid Id, Guid TeacherId, Guid? ClassId, decimal Percentage);
+public sealed record TeacherSalaryConfigDto(
+    Guid Id, Guid TeacherId, Guid? ClassId, decimal Percentage, decimal? FixedAmount);
 
 /// <summary>Upserts the (TeacherId, ClassId?) revenue-share row. ClassId null = the teacher default.</summary>
 public sealed record SetTeacherSalaryConfigCommand(Guid TeacherId, Guid? ClassId, decimal Percentage)
     : IRequest<Result<TeacherSalaryConfigDto>>;
+
+/// <summary>
+/// Assigns (or clears with a null amount) a flat fixed monthly payment across one
+/// or more of a teacher's classes in a single call. Upserts the per-class
+/// (TeacherId, ClassId) rows — existing percentage on a row is preserved, only the
+/// fixed amount changes — so the unique index prevents duplicate assignments.
+/// </summary>
+public sealed record SetTeacherClassFixedAmountCommand(
+    Guid TeacherId, IReadOnlyList<Guid> ClassIds, decimal? FixedAmount)
+    : IRequest<Result<IReadOnlyCollection<TeacherSalaryConfigDto>>>;
 
 public sealed record GetTeacherSalaryConfigsQuery(Guid TeacherId)
     : IRequest<Result<IReadOnlyCollection<TeacherSalaryConfigDto>>>;
