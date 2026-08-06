@@ -77,39 +77,50 @@ public sealed class DatabaseInitializerHostedService(
     }
 
     /// <summary>
-    /// Polls the database until it accepts a connection, with a bounded backoff
-    /// (~up to 60s). Tolerates every transient boot-time error so a slow / just-
-    /// recreated Postgres doesn't crash the API. Only gives up after the budget is
-    /// exhausted, letting the migrate call below surface a genuine, persistent
-    /// failure (e.g. a real credential mismatch).
+    /// Polls the database until it accepts an AUTHENTICATED connection, with a
+    /// bounded backoff (~up to 90s).
+    ///
+    /// We deliberately open a real connection instead of calling
+    /// <c>CanConnectAsync</c>: Npgsql reports a server that answers with 28P01
+    /// ("password authentication failed") as reachable — the server responded, it
+    /// just rejected the credentials — so <c>CanConnectAsync</c> returns <c>true</c>
+    /// and sails straight past the exact window we need to wait out. Right after a
+    /// deploy the db container is (re)starting and briefly presents a different
+    /// password than the app's until Postgres finishes applying it, so we must
+    /// retry THROUGH the auth failure until it genuinely succeeds. Otherwise the
+    /// host crash-loops (restart: unless-stopped) and the first sign-ins after
+    /// every deploy fail until it stabilises.
+    ///
+    /// A genuinely permanent credential mismatch simply exhausts the budget and
+    /// then surfaces loudly on the migrate step below.
     /// </summary>
     private async Task WaitForDatabaseAsync(LMSDbContext db, CancellationToken cancellationToken)
     {
-        const int maxAttempts = 20;
+        const int maxAttempts = 30;
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
             try
             {
-                if (await db.Database.CanConnectAsync(cancellationToken))
-                {
-                    if (attempt > 1)
-                        logger.LogInformation("Database reachable after {Attempts} attempt(s).", attempt);
-                    return;
-                }
+                // Opening the connection completes Postgres's auth handshake, so a
+                // wrong/temporarily-mismatched password surfaces here (28P01) and is
+                // retried — unlike CanConnectAsync, which would swallow it.
+                await db.Database.OpenConnectionAsync(cancellationToken);
+                await db.Database.CloseConnectionAsync();
+                if (attempt > 1)
+                    logger.LogInformation("Database authenticated after {Attempts} attempt(s).", attempt);
+                return;
             }
             catch (Exception ex) when (attempt < maxAttempts)
             {
                 logger.LogWarning(
                     "Database not ready yet (attempt {Attempt}/{Max}): {Message}. Retrying…",
                     attempt, maxAttempts, ex.Message);
-            }
-
-            if (attempt < maxAttempts)
                 await Task.Delay(TimeSpan.FromSeconds(Math.Min(3, attempt)), cancellationToken);
+            }
         }
 
         logger.LogWarning(
-            "Database still not confirmed reachable after {Max} attempts — proceeding; " +
+            "Database still not authenticating after {Max} attempts — proceeding; " +
             "the migration step will surface any persistent failure.", maxAttempts);
     }
 
