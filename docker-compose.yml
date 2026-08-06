@@ -22,25 +22,19 @@ services:
     # from the public internet. Drop this block to keep it fully internal.
     ports:
       - "127.0.0.1:5432:5432"
+    # Fixed container name so the api can target THIS Postgres unambiguously
+    # (see the connection string note on the api service).
+    container_name: eduvibe-db-1
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
       timeout: 5s
       retries: 5
-    # Reach the DB via a PROJECT-UNIQUE alias, never the generic `db`. On a host
-    # that runs several stacks, more than one project's service is called `db`,
-    # and if a foreign `db` container ends up on this network the name resolves to
-    # multiple IPs (round-robin) — the api then intermittently connects to another
-    # project's Postgres and gets "28P01 password authentication failed for user
-    # eduvibe". A unique alias only ever resolves to this container.
-    networks:
-      default:
-        aliases:
-          - eduvibe-db
 
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    container_name: eduvibe-redis-1
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redisdata:/data
@@ -49,12 +43,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    # Same reasoning as the DB — a project-unique alias avoids a cross-stack
-    # `redis` name collision silently pointing the api at the wrong data store.
-    networks:
-      default:
-        aliases:
-          - eduvibe-redis
 
   api:
     image: ${IMAGE:-ghcr.io/k00h1nur/edu-vibe-back:latest}
@@ -68,11 +56,14 @@ services:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_URLS: http://+:8080
       # Single source of truth: build the connection string from the POSTGRES_* vars.
-      # NOTE: connect via the project-unique `eduvibe-db` alias, not the generic
-      # `db`, so a foreign `db` container on this network can never hijack the
-      # connection (the 28P01 cross-stack bug).
-      ConnectionStrings__DefaultConnection: "Host=eduvibe-db;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
-      Redis__ConnectionString: "eduvibe-redis:6379"
+      # NOTE: target the UNIQUE container name `eduvibe-db-1`, not the generic `db`.
+      # This host runs several stacks and more than one names its service `db`; a
+      # foreign `db` on the shared network makes `db` resolve to multiple IPs
+      # (round-robin) and the api intermittently hits another project's Postgres →
+      # "28P01 password authentication failed for user eduvibe". A container name
+      # is globally unique, so it can never be hijacked.
+      ConnectionStrings__DefaultConnection: "Host=eduvibe-db-1;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}"
+      Redis__ConnectionString: "eduvibe-redis-1:6379"
       # Apply pending EF migrations on boot (single-instance deploy).
       Database__AutoMigrateOnStartup: "true"
       Jwt__Key: ${JWT_KEY}
