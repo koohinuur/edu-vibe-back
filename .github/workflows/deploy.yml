@@ -84,6 +84,19 @@ jobs:
             # backend deploy) reuses it instead of a stale pin.
             export IMAGE="$IMAGE_REF"
             grep -q '^IMAGE=' .env && sed -i "s|^IMAGE=.*|IMAGE=$IMAGE_REF|" .env || echo "IMAGE=$IMAGE_REF" >> .env
+            # Self-heal: pin all cross-stack references to THIS stack's unique
+            # container names, so a same-named service (api/db/redis/web) from
+            # another project on the shared network can never round-robin our
+            # traffic onto it (the 28P01 / login "Bad Request" / staff 404 class of
+            # bugs). Idempotent — only our own generic names match (yapp/turbozor
+            # already use unique names). The pipeline doesn't sync these files, so
+            # we re-apply the fix here on every deploy.
+            sed -i -e 's|Host=db;|Host=eduvibe-db-1;|' \
+                   -e 's|"redis:6379"|"eduvibe-redis-1:6379"|' \
+                   -e 's|http://api:8080|http://eduvibe-api-1:8080|g' docker-compose.yml
+            sed -i -e 's|reverse_proxy web:80|reverse_proxy eduvibe-web-1:80|' \
+                   -e 's|reverse_proxy api:8080|reverse_proxy eduvibe-api-1:8080|' \
+                   -e 's|reverse_proxy admin:3000|reverse_proxy eduvibe-admin-1:3000|' Caddyfile
             # Free disk BEFORE pulling. Every deploy pushes a new :SHA image; the old
             # ones accumulate on the box and fill the disk, which surfaces as the
             # containerd "failed commit on ref … no such file or directory" error
