@@ -97,7 +97,9 @@ jobs:
             docker compose pull api || { echo "pull failed — pruning and retrying"; docker image prune -af || true; sleep 5; docker compose pull api; }
             # Touch only the backend + edge services; never clobber the web
             # container, which the frontend repo's pipeline owns.
-            docker compose up -d db redis api caddy
+            # --remove-orphans clears containers for services no longer in the
+            # compose file, so stale rows don't linger on the shared network.
+            docker compose up -d --remove-orphans db redis api caddy
             # Apply any Caddyfile changes synced above (no-op if unchanged).
             docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile || true
             docker image prune -af || true
