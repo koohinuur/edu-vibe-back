@@ -9,17 +9,22 @@
 	email usnetflix022@gmail.com
 }
 
+# Target UNIQUE container names, never the generic service names. This host runs
+# several stacks that also define `web` / `api`, all on the same Docker network,
+# so `api` / `web` resolve to multiple containers (round-robin) and Caddy would
+# intermittently proxy to a FOREIGN backend — e.g. login hitting another
+# project's api and returning "Bad Request".
 edu-vibe.uz, www.edu-vibe.uz {
 	encode gzip zstd
-	reverse_proxy web:80
+	reverse_proxy eduvibe-web-1:80
 }
 
 api.edu-vibe.uz {
 	encode gzip zstd
-	reverse_proxy api:8080
+	reverse_proxy eduvibe-api-1:8080
 }
 
 admin.edu-vibe.uz {
 	encode gzip zstd
-	reverse_proxy admin:3000
+	reverse_proxy eduvibe-admin-1:3000
 }
