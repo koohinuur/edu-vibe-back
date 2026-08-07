@@ -47,6 +47,10 @@ services:
   api:
     image: ${IMAGE:-ghcr.io/k00h1nur/edu-vibe-back:latest}
     restart: unless-stopped
+    # Fixed name: on a host with several stacks the service name `api` collides
+    # (sertifikatim-api, yapp-api …). Caddy / the admin proxy / the marketing
+    # nginx must target THIS container by its unique name, never `api`.
+    container_name: eduvibe-api-1
     depends_on:
       db:
         condition: service_healthy
@@ -96,6 +100,7 @@ services:
   web:
     image: ${WEB_IMAGE:-ghcr.io/k00h1nur/edu-vibe:latest}
     restart: unless-stopped
+    container_name: eduvibe-web-1
     # Internal only — Caddy is the public front door now.
     expose:
       - "80"
@@ -108,6 +113,7 @@ services:
   admin:
     image: ${ADMIN_IMAGE:-ghcr.io/k00h1nur/lastchange:latest}
     restart: unless-stopped
+    container_name: eduvibe-admin-1
     expose:
       - "3000"
     environment:
@@ -119,7 +125,10 @@ services:
       # public api.edu-vibe.uz and back — that round-trip was timing out under
       # the roster's parallel authed calls ("Failed to fetch"). Runtime-only var
       # (not NEXT_PUBLIC_) so it's read at runtime, never baked into the image.
-      BACKEND_INTERNAL_URL: ${ADMIN_BACKEND_INTERNAL_URL:-http://api:8080}
+      # Unique container name, NOT the generic `api` (which collides with other
+      # stacks on the shared network and round-robins the admin's API calls onto
+      # a foreign backend → intermittent "Bad Request" on login etc.).
+      BACKEND_INTERNAL_URL: ${ADMIN_BACKEND_INTERNAL_URL:-http://eduvibe-api-1:8080}
 
   # TLS edge: terminates HTTPS (automatic Let's Encrypt) for edu-vibe.uz,
   # www.edu-vibe.uz and api.edu-vibe.uz, and reverse-proxies to web / api.
