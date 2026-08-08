@@ -84,6 +84,9 @@ public sealed class StaffProfileConfiguration : IEntityTypeConfiguration<StaffPr
         b.ToTable("staff_profiles");
         b.HasKey(x => x.Id);
         b.HasIndex(x => x.UserId).IsUnique();
+        b.Property(x => x.DisplayOrder).HasDefaultValue(0);
+        // Speeds up the public teachers feed's ORDER BY DisplayOrder.
+        b.HasIndex(x => x.DisplayOrder);
         b.HasOne(x => x.User).WithOne(x => x.StaffProfile).HasForeignKey<StaffProfile>(x => x.UserId)
             .OnDelete(DeleteBehavior.Restrict);
     }

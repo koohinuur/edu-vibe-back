@@ -18,10 +18,19 @@ public sealed record StaffDto(
     string? Position,
     bool IsPubliclyVisible,
     string? Certifications,
-    int? YearsExperience);
+    int? YearsExperience,
+    int DisplayOrder);
 
 public sealed record SetStaffStatusCommand(Guid StaffProfileId, UserStatus Status)
     : IRequest<Result<StaffDto>>;
+
+/// <summary>
+/// Sets the public marketing-grid order for a set of staff profiles: each id's
+/// <c>DisplayOrder</c> becomes its position in the list (0-based). Ids not in
+/// the list are left untouched. Used by the admin teachers reorder UI.
+/// </summary>
+public sealed record ReorderPublicTeachersCommand(IReadOnlyList<Guid> OrderedStaffProfileIds)
+    : IRequest<Result<int>>;
 
 /// <summary>
 /// Toggle whether this staff member appears on the marketing-site teachers
