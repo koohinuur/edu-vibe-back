@@ -45,7 +45,8 @@ public sealed class GetStaffQueryHandler(IApplicationDbContext db)
             .Select(x => new StaffDto(
                 x.s.Id, x.s.UserId, x.u.Email, x.s.EmploymentType,
                 x.s.FirstName, x.s.LastName, x.s.PhoneNumber, x.s.Description, x.s.AvatarUrl,
-                x.u.Status, x.s.Position, x.s.IsPubliclyVisible, x.s.Certifications, x.s.YearsExperience))
+                x.u.Status, x.s.Position, x.s.IsPubliclyVisible, x.s.Certifications, x.s.YearsExperience,
+                x.s.DisplayOrder))
             .ToListAsync(cancellationToken);
 
         return Result<PagedResult<StaffDto>>.Ok(PagedResult<StaffDto>.From(items, total, page));
@@ -210,12 +211,42 @@ public sealed class SetStaffPublicVisibilityCommandHandler(IApplicationDbContext
     }
 }
 
+public sealed class ReorderPublicTeachersCommandHandler(IApplicationDbContext db)
+    : IRequestHandler<ReorderPublicTeachersCommand, Result<int>>
+{
+    public async Task<Result<int>> Handle(ReorderPublicTeachersCommand request, CancellationToken ct)
+    {
+        var ids = request.OrderedStaffProfileIds;
+        if (ids is null || ids.Count == 0) return Result<int>.Ok(0);
+
+        // Load only the referenced rows, then assign DisplayOrder = position.
+        var idSet = ids.ToHashSet();
+        var profiles = await db.StaffProfiles
+            .Where(s => idSet.Contains(s.Id))
+            .ToDictionaryAsync(s => s.Id, ct);
+
+        var updated = 0;
+        for (var i = 0; i < ids.Count; i++)
+        {
+            if (profiles.TryGetValue(ids[i], out var sp))
+            {
+                sp.SetDisplayOrder(i);
+                updated++;
+            }
+        }
+
+        if (updated > 0) await db.SaveChangesAsync(ct);
+        return Result<int>.Ok(updated);
+    }
+}
+
 internal static class StaffMapper
 {
     public static StaffDto Map(StaffProfile sp, string email, Domain.Enums.UserStatus status) => new(
         sp.Id, sp.UserId, email, sp.EmploymentType,
         sp.FirstName, sp.LastName, sp.PhoneNumber, sp.Description, sp.AvatarUrl,
-        status, sp.Position, sp.IsPubliclyVisible, sp.Certifications, sp.YearsExperience);
+        status, sp.Position, sp.IsPubliclyVisible, sp.Certifications, sp.YearsExperience,
+        sp.DisplayOrder);
 }
 
 public sealed class GetPublicTeachersQueryHandler(IApplicationDbContext db)
@@ -233,7 +264,8 @@ public sealed class GetPublicTeachersQueryHandler(IApplicationDbContext db)
                   s => s.UserId, u => u.Id,
                   (s, u) => new { s, u })
             .Where(x => x.u.Status == Domain.Enums.UserStatus.Active)
-            .OrderBy(x => x.s.LastName).ThenBy(x => x.s.FirstName)
+            // Admin-curated order first (lower = earlier), then name as the tiebreaker.
+            .OrderBy(x => x.s.DisplayOrder).ThenBy(x => x.s.LastName).ThenBy(x => x.s.FirstName)
             .Take(take)
             .Select(x => new
             {

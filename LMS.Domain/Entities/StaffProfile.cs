@@ -46,6 +46,23 @@ public sealed class StaffProfile : BaseEntity
     public bool IsPubliclyVisible { get; private set; }
 
     /// <summary>
+    /// Manual sort key for the public marketing-site teachers grid. Lower
+    /// values appear first; ties fall back to name. Admin-controlled via the
+    /// staff reorder UI. Defaults to 0 so existing rows keep name ordering
+    /// until an admin arranges them.
+    /// </summary>
+    public int DisplayOrder { get; private set; }
+
+    /// <summary>Sets the manual public-grid sort key (clamped to a non-negative int).</summary>
+    public void SetDisplayOrder(int displayOrder)
+    {
+        var normalized = displayOrder < 0 ? 0 : displayOrder;
+        if (DisplayOrder == normalized) return;
+        DisplayOrder = normalized;
+        Touch();
+    }
+
+    /// <summary>
     /// Relative path under /uploads/avatars/ of the user's avatar image, or
     /// null if they haven't uploaded one. The file itself is served by the
     /// static file middleware; this field carries only the filename so the
