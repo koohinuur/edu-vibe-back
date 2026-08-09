@@ -111,6 +111,20 @@ public sealed class StaffController(ISender sender) : ControllerBase
     }
 
     /// <summary>
+    /// Sets the marketing-grid order for the public teachers: each staff id's
+    /// DisplayOrder becomes its index in the posted list. Admin drives this
+    /// from the teachers reorder UI. Returns the number of rows updated.
+    /// </summary>
+    [HttpPut("public-order")]
+    [PermissionAuthorize(Permissions.Staff.Update)]
+    public async Task<ActionResult<ApiResponse<int>>> ReorderPublic(
+        [FromBody] ReorderTeachersRequest body, CancellationToken ct)
+    {
+        var r = await sender.Send(new ReorderPublicTeachersCommand(body.OrderedIds ?? new List<Guid>()), ct);
+        return Ok(ApiResponse<int>.Ok(r.Data, r.Message));
+    }
+
+    /// <summary>
     /// Anonymous public teacher feed for the marketing site. Only staff
     /// members the admin has flipped IsPubliclyVisible on appear here.
     /// Returns lean shape — no email/phone leakage.
@@ -236,3 +250,6 @@ public sealed class StaffController(ISender sender) : ControllerBase
 public sealed record SetUserStatusRequest(UserStatus Status);
 
 public sealed record SetPublicVisibilityRequest(bool IsPubliclyVisible);
+
+/// <summary>Body for the teachers reorder endpoint: staff-profile ids in the desired display order.</summary>
+public sealed record ReorderTeachersRequest(IReadOnlyList<Guid> OrderedIds);

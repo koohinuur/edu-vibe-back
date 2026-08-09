@@ -1448,6 +1448,11 @@ namespace LMS.Infrastructure.Migrations
                     b.Property<string>("Description")
                         .HasColumnType("text");
 
+                    b.Property<int>("DisplayOrder")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
                     b.Property<int>("EmploymentType")
                         .HasColumnType("integer");
 
@@ -1474,6 +1479,8 @@ namespace LMS.Infrastructure.Migrations
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("DisplayOrder");
 
                     b.HasIndex("UserId")
                         .IsUnique();
