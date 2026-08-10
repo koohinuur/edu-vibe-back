@@ -17,6 +17,13 @@ public static class RoleCodes
     public const string Teacher = "Teacher";
     public const string Student = "Student";
 
+    /// <summary>
+    /// SMM (social-media / marketing) manager. A focused role whose job is the
+    /// marketing website's content — see <c>RolePermissionMatrix.ForSmm</c>.
+    /// Lands in a CMS-focused panel on the frontend.
+    /// </summary>
+    public const string SmmManager = "SmmManager";
+
     // Legacy — kept for backward compat with historical role rows.
     public const string SuperAdmin = "SuperAdmin";
     public const string AcademyDirector = "AcademyDirector";
@@ -33,7 +40,7 @@ public static class RoleCodes
     public static readonly IReadOnlySet<string> BuiltIn = new HashSet<string>(
         StringComparer.OrdinalIgnoreCase)
     {
-        Admin, Teacher, Student, SuperAdmin, AcademyDirector, OfficeAdmin, SupportTeacher,
+        Admin, Teacher, Student, SmmManager, SuperAdmin, AcademyDirector, OfficeAdmin, SupportTeacher,
     };
 
     public static bool IsBuiltIn(string? code) => code is not null && BuiltIn.Contains(code);

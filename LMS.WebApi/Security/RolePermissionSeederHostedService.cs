@@ -71,9 +71,10 @@ public sealed class RolePermissionSeederHostedService(
         // explicitly via the /api/Roles admin endpoints.
         var defaults = new (string RoleCode, IEnumerable<string> Codes)[]
         {
-            (RoleCodes.Admin,   Permissions.All),
-            (RoleCodes.Teacher, RolePermissionMatrix.ForTeacher),
-            (RoleCodes.Student, RolePermissionMatrix.ForStudent),
+            (RoleCodes.Admin,      Permissions.All),
+            (RoleCodes.Teacher,    RolePermissionMatrix.ForTeacher),
+            (RoleCodes.Student,    RolePermissionMatrix.ForStudent),
+            (RoleCodes.SmmManager, RolePermissionMatrix.ForSmm),
         };
 
         var bootstrappedRoles = 0;
