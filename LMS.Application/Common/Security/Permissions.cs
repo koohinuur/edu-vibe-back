@@ -397,6 +397,34 @@ public static class Permissions
             Permissions.Marketing.Manage,
         };
 
+        /// <summary>
+        /// SMM / marketing manager — owns the public marketing website's content
+        /// and nothing operational (no students, classes, grades or payments).
+        /// This is the CMS surface plus the marketing-adjacent pieces: courses,
+        /// videos, mock tests, results, announcements, office info, specializations,
+        /// public materials, the marketing teachers grid, and visitor inquiries.
+        /// </summary>
+        public static IReadOnlyCollection<string> ForSmm { get; } = new[]
+        {
+            // CMS core (marketing courses / videos / mock-test sessions).
+            Permissions.Marketing.Manage,
+            // Announcements + Office Info shown on the public site.
+            Permissions.Announcements.Read, Permissions.Announcements.Manage,
+            Permissions.OfficeInfo.Read, Permissions.OfficeInfo.Manage,
+            // Success-story results on the marketing Results page.
+            Permissions.Results.Read, Permissions.Results.Create,
+            Permissions.Results.Update, Permissions.Results.Delete,
+            // Visitor inquiries from the marketing contact form.
+            Permissions.VisitorMessages.Read, Permissions.VisitorMessages.Update,
+            // Public downloadable resources.
+            Permissions.Materials.Read, Permissions.Materials.Manage,
+            // "What we teach" specialization catalogue.
+            Permissions.Specializations.Read, Permissions.Specializations.Manage,
+            // Marketing teachers grid (photo, bio, publish, order) — managed from
+            // the CMS Teachers tab, which is gated by Staff.Read/Update.
+            Permissions.Staff.Read, Permissions.Staff.Update,
+        };
+
         public static IReadOnlyCollection<string> ForTeacher { get; } = new[]
         {
             Permissions.Dashboard.Teacher,
