@@ -18,4 +18,6 @@ public sealed record AddManualXpCommand(Guid StudentProfileId, int Amount, strin
 public sealed record GetStudentXpLedgerQuery(Guid StudentProfileId)
     : IRequest<Result<IReadOnlyCollection<XpLedgerDto>>>;
 
-public sealed record GetLeaderboardQuery(int Top = 10) : IRequest<Result<IReadOnlyCollection<LeaderboardDto>>>;
+/// <summary>Top students by XP. Optionally scoped to one class (enrolled, non-dropped).</summary>
+public sealed record GetLeaderboardQuery(int Top = 10, Guid? ClassId = null)
+    : IRequest<Result<IReadOnlyCollection<LeaderboardDto>>>;
