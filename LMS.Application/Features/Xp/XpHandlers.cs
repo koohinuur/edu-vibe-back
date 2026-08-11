@@ -51,7 +51,18 @@ public sealed class XpHandlers(IApplicationDbContext db, ICurrentUserService cur
         // gap is why teacher leaderboards rendered "Student #<id>" instead of
         // names. Concat + trim is done in memory to yield null (not "") for
         // profiles with no name set, so the client falls back cleanly.
-        var rows = await db.StudentProfiles.OrderByDescending(x => x.XP)
+        var query = db.StudentProfiles.AsQueryable();
+
+        // Optional class scope: only students actively enrolled in that class.
+        if (request.ClassId is { } classId)
+        {
+            query = query.Where(sp => db.Enrollments.Any(e =>
+                e.ClassId == classId &&
+                e.StudentProfileId == sp.Id &&
+                e.Status != EnrollmentStatus.Dropped));
+        }
+
+        var rows = await query.OrderByDescending(x => x.XP)
             .Take(request.Top)
             .Select(x => new { x.Id, x.FirstName, x.LastName, x.Level, x.Streak, x.XP })
             .ToListAsync(cancellationToken);
