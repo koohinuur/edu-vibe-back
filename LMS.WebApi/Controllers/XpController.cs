@@ -25,9 +25,9 @@ public sealed class XpController(ISender sender) : ControllerBase
     [HttpGet("leaderboard")]
     [PermissionAuthorize(Permissions.Xp.Read)]
     public async Task<ActionResult<ApiResponse<IReadOnlyCollection<LeaderboardDto>>>> Leaderboard(
-        [FromQuery] int top = 10, CancellationToken ct = default)
+        [FromQuery] int top = 10, [FromQuery] Guid? classId = null, CancellationToken ct = default)
     {
-        var r = await sender.Send(new GetLeaderboardQuery(top), ct);
+        var r = await sender.Send(new GetLeaderboardQuery(top, classId), ct);
         return Ok(ApiResponse<IReadOnlyCollection<LeaderboardDto>>.Ok(r.Data, r.Message));
     }
 
