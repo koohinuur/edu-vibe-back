@@ -71,8 +71,11 @@ public sealed record GetMyStudentProfileQuery : IRequest<Result<StudentDto>>;
 
 // ---- Bulk import into a class ----------------------------------------------
 
-/// <summary>Per-email outcome of a bulk import. <see cref="Password"/> is only set for newly created users.</summary>
-public sealed record BulkImportStudentRow(string Email, string? Password, string Status, string? Reason);
+/// <summary>One parsed input row for a bulk import: a student's full name (FIO, optional) and email.</summary>
+public sealed record BulkImportStudentInput(string Email, string? FullName);
+
+/// <summary>Per-row outcome of a bulk import. <see cref="Password"/> is only set for newly created users.</summary>
+public sealed record BulkImportStudentRow(string Email, string? Name, string? Password, string Status, string? Reason);
 
 /// <summary>Outcome + statistics of a bulk student import.</summary>
 public sealed record BulkImportStudentsResult(
@@ -83,12 +86,13 @@ public sealed record BulkImportStudentsResult(
     IReadOnlyList<BulkImportStudentRow> Rows);
 
 /// <summary>
-/// Enrolls a batch of students (by email) into a class. Existing users are reused
-/// and simply enrolled; unknown emails get a new student account with a generated
-/// password. Empty rows are ignored, in-file duplicates are flagged, and each row
-/// is processed independently so one failure never aborts the rest.
+/// Enrolls a batch of students (name + email) into a class. Existing users are
+/// reused and simply enrolled; unknown emails get a new student account with a
+/// generated password and their name (FIO) applied. Empty rows are ignored,
+/// in-file duplicates are flagged, and each row is processed independently so one
+/// failure never aborts the rest.
 /// </summary>
-public sealed record BulkImportStudentsCommand(Guid ClassId, IReadOnlyList<string> Emails)
+public sealed record BulkImportStudentsCommand(Guid ClassId, IReadOnlyList<BulkImportStudentInput> Rows)
     : IRequest<Result<BulkImportStudentsResult>>;
 
 /// <summary>Well-known status strings surfaced in the result + downloadable workbook.</summary>

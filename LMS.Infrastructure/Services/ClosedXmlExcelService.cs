@@ -27,6 +27,33 @@ public sealed class ClosedXmlExcelService : IExcelService
         return values;
     }
 
+    public IReadOnlyList<ExcelImportRow> ReadNameEmailRows(Stream stream)
+    {
+        using var workbook = new XLWorkbook(stream);
+        var sheet = workbook.Worksheets.FirstOrDefault();
+        if (sheet is null) return Array.Empty<ExcelImportRow>();
+
+        var rows = new List<ExcelImportRow>();
+        foreach (var row in sheet.RowsUsed())
+        {
+            var a = row.Cell(1).GetString().Trim();
+            var b = row.Cell(2).GetString().Trim();
+            if (string.IsNullOrWhiteSpace(a) && string.IsNullOrWhiteSpace(b)) continue;
+
+            // The email is whichever cell has an '@'; the other is the name. This
+            // tolerates both column orders and old email-only (single column)
+            // files. When neither has an '@' (e.g. a "FIO | Email" header row),
+            // column A is treated as the email so the caller's header check drops it.
+            string email, name;
+            if (b.Contains('@')) { email = b; name = a; }
+            else if (a.Contains('@')) { email = a; name = b; }
+            else { email = a; name = b; }
+
+            rows.Add(new ExcelImportRow(string.IsNullOrWhiteSpace(name) ? null : name, email));
+        }
+        return rows;
+    }
+
     public byte[] Build(IReadOnlyList<ExcelSheet> sheets)
     {
         using var workbook = new XLWorkbook();
