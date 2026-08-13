@@ -42,20 +42,21 @@ public sealed class BulkImportStudentsCommandHandler(IApplicationDbContext db, I
         var rows = new List<BulkImportStudentRow>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var raw in request.Emails)
+        foreach (var input in request.Rows)
         {
-            var email = raw?.Trim().ToLowerInvariant() ?? string.Empty;
+            var email = input.Email?.Trim().ToLowerInvariant() ?? string.Empty;
+            var fullName = string.IsNullOrWhiteSpace(input.FullName) ? null : input.FullName!.Trim();
             if (string.IsNullOrWhiteSpace(email)) continue; // ignore empty rows
 
             if (!seen.Add(email))
             {
-                rows.Add(new BulkImportStudentRow(email, null, BulkImportStatus.Failed, "Duplicate email in file."));
+                rows.Add(new BulkImportStudentRow(email, fullName, null, BulkImportStatus.Failed, "Duplicate email in file."));
                 continue;
             }
 
             if (!IsValidEmail(email))
             {
-                rows.Add(new BulkImportStudentRow(email, null, BulkImportStatus.Failed, "Invalid email format."));
+                rows.Add(new BulkImportStudentRow(email, fullName, null, BulkImportStatus.Failed, "Invalid email format."));
                 continue;
             }
 
@@ -66,15 +67,15 @@ public sealed class BulkImportStudentsCommandHandler(IApplicationDbContext db, I
                 // commits only on a successful Result, so a failed row rolls back
                 // cleanly and never leaks half-created entities into the next row.
                 var outcome = await db.ExecuteInTransactionAsync(
-                    () => ProcessOneAsync(request.ClassId, cls.MaxStudents, email, studentRole.Id, ct), ct);
+                    () => ProcessOneAsync(request.ClassId, cls.MaxStudents, email, fullName, studentRole.Id, ct), ct);
 
                 row = outcome.Success
                     ? outcome.Data!
-                    : new BulkImportStudentRow(email, null, BulkImportStatus.Failed, outcome.Message ?? "Failed.");
+                    : new BulkImportStudentRow(email, fullName, null, BulkImportStatus.Failed, outcome.Message ?? "Failed.");
             }
             catch (Exception ex)
             {
-                row = new BulkImportStudentRow(email, null, BulkImportStatus.Failed, Summarize(ex));
+                row = new BulkImportStudentRow(email, fullName, null, BulkImportStatus.Failed, Summarize(ex));
             }
 
             rows.Add(row);
@@ -95,7 +96,7 @@ public sealed class BulkImportStudentsCommandHandler(IApplicationDbContext db, I
     /// (rollback) whose message becomes the row's failure reason.
     /// </summary>
     private async Task<Result<BulkImportStudentRow>> ProcessOneAsync(
-        Guid classId, int maxStudents, string email, Guid studentRoleId, CancellationToken ct)
+        Guid classId, int maxStudents, string email, string? fullName, Guid studentRoleId, CancellationToken ct)
     {
         var user = await db.Users.FirstOrDefaultAsync(u => u.Email == email, ct);
 
@@ -122,15 +123,18 @@ public sealed class BulkImportStudentsCommandHandler(IApplicationDbContext db, I
 
             await db.SaveChangesAsync(ct);
             return Result<BulkImportStudentRow>.Ok(
-                new BulkImportStudentRow(email, null, BulkImportStatus.ExistingUserAdded, enrolled.Message));
+                new BulkImportStudentRow(email, fullName, null, BulkImportStatus.ExistingUserAdded, enrolled.Message));
         }
 
-        // Brand-new student: create account + profile + role, then enrol.
+        // Brand-new student: create account + profile + role, apply the name
+        // (FIO) if the file supplied one, then enrol.
         var password = PasswordGenerator.Generate();
         var newUser = new User(email, hasher.Hash(password));
         await db.Users.AddAsync(newUser, ct);
         await db.UserRoles.AddAsync(new UserRole(newUser.Id, studentRoleId), ct);
         var newProfile = new StudentProfile(newUser.Id, newUser);
+        var (firstName, lastName) = SplitName(fullName);
+        if (firstName is not null) newProfile.UpdateProfile(firstName, lastName, null, null);
         await db.StudentProfiles.AddAsync(newProfile, ct);
 
         var newEnroll = await EnrollAsync(classId, maxStudents, newProfile.Id, ct);
@@ -139,7 +143,21 @@ public sealed class BulkImportStudentsCommandHandler(IApplicationDbContext db, I
 
         await db.SaveChangesAsync(ct);
         return Result<BulkImportStudentRow>.Ok(
-            new BulkImportStudentRow(email, password, BulkImportStatus.Created, null));
+            new BulkImportStudentRow(email, fullName, password, BulkImportStatus.Created, null));
+    }
+
+    /// <summary>
+    /// Splits a full name (FIO) into first + last for the profile. FIO order
+    /// isn't reliably knowable, so the first token becomes the first name and the
+    /// remainder the last name — the app displays them concatenated either way.
+    /// </summary>
+    private static (string? First, string? Last) SplitName(string? fullName)
+    {
+        if (string.IsNullOrWhiteSpace(fullName)) return (null, null);
+        var parts = fullName.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0) return (null, null);
+        if (parts.Length == 1) return (parts[0], null);
+        return (parts[0], string.Join(' ', parts.Skip(1)));
     }
 
     /// <summary>

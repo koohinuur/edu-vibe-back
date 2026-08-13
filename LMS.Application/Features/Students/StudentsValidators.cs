@@ -33,6 +33,6 @@ public sealed class BulkImportStudentsCommandValidator : AbstractValidator<BulkI
     public BulkImportStudentsCommandValidator()
     {
         RuleFor(x => x.ClassId).NotEmpty();
-        RuleFor(x => x.Emails).NotNull();
+        RuleFor(x => x.Rows).NotNull();
     }
 }
