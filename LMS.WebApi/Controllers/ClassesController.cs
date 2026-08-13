@@ -250,23 +250,27 @@ public sealed class ClassesController(ISender sender) : ControllerBase
         if (file is null || file.Length == 0)
             return BadRequest(ApiResponse<object>.Fail("No file was uploaded."));
 
-        IReadOnlyList<string> emails;
+        IReadOnlyList<ExcelImportRow> parsed;
         try
         {
             await using var stream = file.OpenReadStream();
-            emails = excel.ReadFirstColumn(stream);
+            parsed = excel.ReadNameEmailRows(stream);
         }
         catch
         {
             return BadRequest(ApiResponse<object>.Fail("Could not read the file. Upload a valid .xlsx workbook."));
         }
 
-        // A leading header cell ("Email", "E-mail", …) has no '@' — drop it so the
-        // header isn't treated as an address.
-        if (emails.Count > 0 && !emails[0].Contains('@'))
-            emails = emails.Skip(1).ToList();
+        // A leading header row ("FIO | Email", "Name | E-mail", …) has no '@' in
+        // its email cell — drop it so the header isn't treated as an address.
+        if (parsed.Count > 0 && !parsed[0].Email.Contains('@'))
+            parsed = parsed.Skip(1).ToList();
 
-        var r = await sender.Send(new BulkImportStudentsCommand(id, emails), ct);
+        var inputs = parsed
+            .Select(row => new BulkImportStudentInput(row.Email, row.FullName))
+            .ToList();
+
+        var r = await sender.Send(new BulkImportStudentsCommand(id, inputs), ct);
         if (!r.Success || r.Data is null)
             return r.ErrorCode == "NOT_FOUND"
                 ? NotFound(ApiResponse<object>.Fail(r.Message ?? "Not found"))
@@ -287,9 +291,9 @@ public sealed class ClassesController(ISender sender) : ControllerBase
 
         var results = new ExcelSheet(
             "Results",
-            new[] { "Email", "Generated Password", "Status", "Failure Reason" },
+            new[] { "Name", "Email", "Generated Password", "Status", "Failure Reason" },
             result.Rows
-                .Select(row => (IReadOnlyList<string?>)new[] { row.Email, row.Password, row.Status, row.Reason })
+                .Select(row => (IReadOnlyList<string?>)new[] { row.Name, row.Email, row.Password, row.Status, row.Reason })
                 .ToList());
 
         var bytes = excel.Build(new[] { summary, results });
