@@ -300,6 +300,8 @@ public sealed class PaymentConfiguration : IEntityTypeConfiguration<Payment>
         b.ToTable("payments");
         b.HasKey(x => x.Id);
         b.Property(x => x.Amount).HasPrecision(18, 2);
+        // Currency defaults to UZS so existing rows backfill cleanly on migrate.
+        b.Property(x => x.Currency).HasDefaultValue(LMS.Domain.Enums.Currency.UZS);
         b.HasOne(x => x.Class).WithMany().HasForeignKey(x => x.ClassId).OnDelete(DeleteBehavior.SetNull);
         b.HasIndex(x => new { x.ClassId, x.PeriodMonth });
     }
