@@ -823,6 +823,25 @@ public sealed class MockTestSlotConfiguration : IEntityTypeConfiguration<MockTes
     }
 }
 
+public sealed class MockTestRegistrationConfiguration : IEntityTypeConfiguration<MockTestRegistration>
+{
+    public void Configure(EntityTypeBuilder<MockTestRegistration> b)
+    {
+        b.ToTable("mock_test_registrations");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.FullName).IsRequired().HasMaxLength(256);
+        b.Property(x => x.Phone).HasMaxLength(32);
+        b.Property(x => x.Email).HasMaxLength(256);
+        b.Property(x => x.ResultNotes).HasMaxLength(2000);
+        foreach (var score in new[] { nameof(MockTestRegistration.Listening), nameof(MockTestRegistration.Reading),
+                     nameof(MockTestRegistration.Writing), nameof(MockTestRegistration.Speaking),
+                     nameof(MockTestRegistration.Overall) })
+            b.Property(score).HasPrecision(4, 1);
+        b.HasOne(x => x.Slot).WithMany().HasForeignKey(x => x.SlotId).OnDelete(DeleteBehavior.Cascade);
+        b.HasIndex(x => x.SlotId);
+    }
+}
+
 public sealed class TelegramAccountConfiguration : IEntityTypeConfiguration<TelegramAccount>
 {
     public void Configure(EntityTypeBuilder<TelegramAccount> b)

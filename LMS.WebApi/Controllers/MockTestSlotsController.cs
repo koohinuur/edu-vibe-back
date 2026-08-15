@@ -66,4 +66,38 @@ public sealed class MockTestSlotsController(ISender sender) : ControllerBase
             ? Ok(ApiResponse<object>.Ok(new { }, r.Message))
             : BadRequest(ApiResponse<object>.Fail(r.Message ?? "Failed"));
     }
+
+    // ---- Registration + results --------------------------------------------
+
+    /// <summary>Register for a slot — open to public leads and logged-in students.</summary>
+    [HttpPost("{id:guid}/register")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ApiResponse<MockTestRegistrationDto>>> Register(
+        Guid id, [FromBody] RegisterForMockTestCommand cmd, CancellationToken ct)
+    {
+        var r = await sender.Send(cmd with { SlotId = id }, ct);
+        return r.ToApiResult();
+    }
+
+    /// <summary>Admin: everyone registered for a slot.</summary>
+    [HttpGet("{id:guid}/registrations")]
+    [Authorize]
+    [PermissionAuthorize(Permissions.Marketing.Manage)]
+    public async Task<ActionResult<ApiResponse<IReadOnlyCollection<MockTestRegistrationDto>>>> Registrations(
+        Guid id, CancellationToken ct)
+    {
+        var r = await sender.Send(new GetMockTestRegistrationsQuery(id), ct);
+        return r.ToApiResult();
+    }
+
+    /// <summary>Admin: attach/update a registration's per-section scores + overall band.</summary>
+    [HttpPut("registrations/{registrationId:guid}/result")]
+    [Authorize]
+    [PermissionAuthorize(Permissions.Marketing.Manage)]
+    public async Task<ActionResult<ApiResponse<MockTestRegistrationDto>>> SetResult(
+        Guid registrationId, [FromBody] SetMockTestResultCommand cmd, CancellationToken ct)
+    {
+        var r = await sender.Send(cmd with { RegistrationId = registrationId }, ct);
+        return r.ToApiResult();
+    }
 }
