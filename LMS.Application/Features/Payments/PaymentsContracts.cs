@@ -11,7 +11,10 @@ public sealed record PaymentDto(
     DateOnly PeriodMonth,
     decimal Amount,
     PaymentMethod Method,
-    PaymentStatus Status);
+    PaymentStatus Status,
+    // Student's display name (first + last, falling back to email). Populated by
+    // the list/by-student queries so admin tables show a name, not an id.
+    string? StudentName = null);
 
 public sealed record CreatePaymentCommand(
     Guid StudentProfileId, Guid ClassId, DateOnly PeriodMonth, decimal Amount, PaymentMethod Method)
