@@ -73,12 +73,17 @@ public sealed class PaymentsHandlers(IApplicationDbContext db, ISalaryCalculator
             .OrderByDescending(p => p.CreatedAt)
             .Skip(page.Skip)
             .Take(page.NormalizedPageSize)
-            .Select(p => new PaymentDto(p.Id, p.StudentProfileId, p.ClassId, p.PeriodMonth, p.Amount, p.Method, p.Status))
+            .Select(p => new PaymentDto(p.Id, p.StudentProfileId, p.ClassId, p.PeriodMonth, p.Amount, p.Method, p.Status, null))
             .ToListAsync(cancellationToken);
-        // Derive the display status in memory (page is small) — keeps the EF
-        // projection trivially translatable.
+        // Derive the display status + attach the student's name in memory (page
+        // is small) — keeps the EF projection trivially translatable.
+        var names = await ResolveStudentNamesAsync(rows.Select(r => r.StudentProfileId), cancellationToken);
         var items = rows
-            .Select(d => d with { Status = DeriveStatus(d.Status, d.PeriodMonth, currentMonth) })
+            .Select(d => d with
+            {
+                Status = DeriveStatus(d.Status, d.PeriodMonth, currentMonth),
+                StudentName = names.GetValueOrDefault(d.StudentProfileId),
+            })
             .ToList();
 
         return Result<PagedResult<PaymentDto>>.Ok(PagedResult<PaymentDto>.From(items, total, page));
@@ -96,10 +101,44 @@ public sealed class PaymentsHandlers(IApplicationDbContext db, ISalaryCalculator
         var currentMonth = CurrentSchoolMonth();
         var rows = await db.Payments
             .Where(x => x.StudentProfileId == request.StudentProfileId)
-            .Select(p => new PaymentDto(p.Id, p.StudentProfileId, p.ClassId, p.PeriodMonth, p.Amount, p.Method, p.Status))
+            .Select(p => new PaymentDto(p.Id, p.StudentProfileId, p.ClassId, p.PeriodMonth, p.Amount, p.Method, p.Status, null))
             .ToListAsync(cancellationToken);
+        var names = await ResolveStudentNamesAsync(rows.Select(r => r.StudentProfileId), cancellationToken);
         return Result<IReadOnlyCollection<PaymentDto>>.Ok(
-            rows.Select(d => d with { Status = DeriveStatus(d.Status, d.PeriodMonth, currentMonth) }).ToList());
+            rows.Select(d => d with
+            {
+                Status = DeriveStatus(d.Status, d.PeriodMonth, currentMonth),
+                StudentName = names.GetValueOrDefault(d.StudentProfileId),
+            }).ToList());
+    }
+
+    /// <summary>
+    /// Builds a studentProfileId → display name map (first + last, falling back
+    /// to email) for a set of ids, in one query. Used to label payment rows with
+    /// a name instead of a raw id.
+    /// </summary>
+    private async Task<Dictionary<Guid, string?>> ResolveStudentNamesAsync(
+        IEnumerable<Guid> studentProfileIds, CancellationToken ct)
+    {
+        var ids = studentProfileIds.Distinct().ToList();
+        if (ids.Count == 0) return new Dictionary<Guid, string?>();
+
+        var rows = await (
+            from sp in db.StudentProfiles
+            where ids.Contains(sp.Id)
+            join u in db.Users on sp.UserId equals u.Id into gj
+            from u in gj.DefaultIfEmpty()
+            select new { sp.Id, sp.FirstName, sp.LastName, Email = u != null ? u.Email : null })
+            .ToListAsync(ct);
+
+        return rows.ToDictionary(
+            x => x.Id,
+            x =>
+            {
+                var full = string.Join(" ", new[] { x.FirstName, x.LastName }
+                    .Where(s => !string.IsNullOrWhiteSpace(s)));
+                return (string?)(string.IsNullOrWhiteSpace(full) ? x.Email : full);
+            });
     }
 
     /// <summary>
