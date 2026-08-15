@@ -29,7 +29,7 @@ public sealed class PaymentsHandlers(IApplicationDbContext db, ISalaryCalculator
         Payment p;
         try
         {
-            p = new Payment(request.StudentProfileId, request.ClassId, request.PeriodMonth, request.Amount, request.Method);
+            p = new Payment(request.StudentProfileId, request.ClassId, request.PeriodMonth, request.Amount, request.Method, request.Currency);
         }
         catch (LMS.Domain.Exceptions.DomainException ex)
         {
@@ -73,7 +73,7 @@ public sealed class PaymentsHandlers(IApplicationDbContext db, ISalaryCalculator
             .OrderByDescending(p => p.CreatedAt)
             .Skip(page.Skip)
             .Take(page.NormalizedPageSize)
-            .Select(p => new PaymentDto(p.Id, p.StudentProfileId, p.ClassId, p.PeriodMonth, p.Amount, p.Method, p.Status, null))
+            .Select(p => new PaymentDto(p.Id, p.StudentProfileId, p.ClassId, p.PeriodMonth, p.Amount, p.Method, p.Currency, p.Status, null))
             .ToListAsync(cancellationToken);
         // Derive the display status + attach the student's name in memory (page
         // is small) — keeps the EF projection trivially translatable.
@@ -101,7 +101,7 @@ public sealed class PaymentsHandlers(IApplicationDbContext db, ISalaryCalculator
         var currentMonth = CurrentSchoolMonth();
         var rows = await db.Payments
             .Where(x => x.StudentProfileId == request.StudentProfileId)
-            .Select(p => new PaymentDto(p.Id, p.StudentProfileId, p.ClassId, p.PeriodMonth, p.Amount, p.Method, p.Status, null))
+            .Select(p => new PaymentDto(p.Id, p.StudentProfileId, p.ClassId, p.PeriodMonth, p.Amount, p.Method, p.Currency, p.Status, null))
             .ToListAsync(cancellationToken);
         var names = await ResolveStudentNamesAsync(rows.Select(r => r.StudentProfileId), cancellationToken);
         return Result<IReadOnlyCollection<PaymentDto>>.Ok(
@@ -343,6 +343,6 @@ public sealed class PaymentsHandlers(IApplicationDbContext db, ISalaryCalculator
 
     private static PaymentDto Map(Payment p)
     {
-        return new PaymentDto(p.Id, p.StudentProfileId, p.ClassId, p.PeriodMonth, p.Amount, p.Method, p.Status);
+        return new PaymentDto(p.Id, p.StudentProfileId, p.ClassId, p.PeriodMonth, p.Amount, p.Method, p.Currency, p.Status);
     }
 }
