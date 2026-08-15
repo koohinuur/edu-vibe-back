@@ -78,6 +78,7 @@ public sealed class CreateUserCommandHandler(IApplicationDbContext db, IPassword
             return Result<UserDto>.Fail("EMAIL_EXISTS", "Email already exists.");
 
         var user = new User(email, hasher.Hash(request.Password));
+        user.SetPhone(request.Phone);
         if (request.Status != user.Status)
         {
             if (request.Status == UserStatus.Active) user.Activate();

@@ -16,7 +16,9 @@ public sealed class LoginCommandValidator : AbstractValidator<LoginCommand>
 {
     public LoginCommandValidator()
     {
-        RuleFor(x => x.Email).NotEmpty().EmailAddress();
+        // Identifier can be an email or a phone, so don't force email format here
+        // — just require something. Credential mismatches return "invalid".
+        RuleFor(x => x.Email).NotEmpty();
         // Login must NOT enforce complexity/length — that belongs on register /
         // change-password. Requiring a minimum length here rejects any account
         // whose real password is shorter with a confusing 400 instead of letting

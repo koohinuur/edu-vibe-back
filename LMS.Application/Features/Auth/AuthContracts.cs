@@ -21,7 +21,7 @@ public sealed record AuthTokensResponse(
     IReadOnlyCollection<string> Roles,
     IReadOnlyCollection<string> Permissions);
 
-public sealed record RegisterUserCommand(string Email, string Password, string RoleCode)
+public sealed record RegisterUserCommand(string Email, string Password, string RoleCode, string? Phone = null)
     : IRequest<Result<AuthTokensResponse>>;
 
 public sealed record LoginCommand(string Email, string Password) : IRequest<Result<AuthTokensResponse>>;
