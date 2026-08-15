@@ -35,3 +35,20 @@ public sealed class RefreshTokenCommandValidator : AbstractValidator<RefreshToke
         RuleFor(x => x.RefreshToken).NotEmpty();
     }
 }
+public sealed class ForgotPasswordCommandValidator : AbstractValidator<ForgotPasswordCommand>
+{
+    public ForgotPasswordCommandValidator()
+    {
+        RuleFor(x => x.Identifier).NotEmpty();
+    }
+}
+
+public sealed class ResetPasswordCommandValidator : AbstractValidator<ResetPasswordCommand>
+{
+    public ResetPasswordCommandValidator()
+    {
+        RuleFor(x => x.Identifier).NotEmpty();
+        RuleFor(x => x.Code).NotEmpty();
+        RuleFor(x => x.NewPassword).NotEmpty().MinimumLength(8);
+    }
+}

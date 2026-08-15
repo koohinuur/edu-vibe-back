@@ -46,6 +46,29 @@ public sealed class AuthController(ISender sender) : ControllerBase
         return Ok(ApiResponse<AuthTokensResponse>.Ok(result.Data, "Logged in"));
     }
 
+    [HttpPost("forgot-password")]
+    [AllowAnonymous]
+    [EnableRateLimiting("auth-anon")]
+    public async Task<ActionResult<ApiResponse<object>>> ForgotPassword(
+        [FromBody] ForgotPasswordCommand command, CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(command, cancellationToken);
+        // Always 200 with a generic message — never reveal whether the account exists.
+        return Ok(ApiResponse<object>.Ok(null, result.Message ?? "If eligible, a code was sent."));
+    }
+
+    [HttpPost("reset-password")]
+    [AllowAnonymous]
+    [EnableRateLimiting("auth-anon")]
+    public async Task<ActionResult<ApiResponse<object>>> ResetPassword(
+        [FromBody] ResetPasswordCommand command, CancellationToken cancellationToken)
+    {
+        var result = await sender.Send(command, cancellationToken);
+        if (!result.Success)
+            return BadRequest(ApiResponse<object>.Fail(result.Message ?? "Reset failed"));
+        return Ok(ApiResponse<object>.Ok(null, result.Message ?? "Password reset"));
+    }
+
     [HttpPost("refresh")]
     [AllowAnonymous]
     [EnableRateLimiting("auth-anon")]

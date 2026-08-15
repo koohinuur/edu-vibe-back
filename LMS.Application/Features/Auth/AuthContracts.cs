@@ -28,6 +28,16 @@ public sealed record LoginCommand(string Email, string Password) : IRequest<Resu
 
 public sealed record RefreshTokenCommand(string RefreshToken) : IRequest<Result<AuthTokensResponse>>;
 
+/// <summary>
+/// Starts a password reset: if the identifier (email or phone) matches an active
+/// user with a linked Telegram, a one-time code is DM'd via the platform bot.
+/// Always succeeds generically so it can't be used to probe which accounts exist.
+/// </summary>
+public sealed record ForgotPasswordCommand(string Identifier) : IRequest<Result>;
+
+/// <summary>Completes a reset: verifies the Telegram-delivered code and sets a new password.</summary>
+public sealed record ResetPasswordCommand(string Identifier, string Code, string NewPassword) : IRequest<Result>;
+
 public sealed record AssignRoleCommand(Guid UserId, string RoleCode) : IRequest<Result>;
 
 /// <summary>
