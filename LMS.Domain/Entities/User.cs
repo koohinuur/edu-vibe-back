@@ -24,6 +24,9 @@ public sealed class User : BaseEntity
     public string PasswordHash { get; private set; }
     public string? RefreshTokenHash { get; private set; }
     public DateTime? RefreshTokenExpiresAt { get; private set; }
+    /// <summary>Hashed one-time password-reset code (Telegram-delivered), or null.</summary>
+    public string? PasswordResetCodeHash { get; private set; }
+    public DateTime? PasswordResetExpiresAt { get; private set; }
     public UserStatus Status { get; private set; }
 
     public StudentProfile? StudentProfile { get; private set; }
@@ -55,6 +58,23 @@ public sealed class User : BaseEntity
     public void SetPhone(string? phone)
     {
         Phone = NormalizePhone(phone);
+        Touch();
+    }
+
+    /// <summary>Stores a hashed, expiring one-time reset code.</summary>
+    public void SetPasswordResetCode(string codeHash, DateTime expiresAt)
+    {
+        if (string.IsNullOrWhiteSpace(codeHash)) throw new DomainException("Reset code hash is required.");
+        PasswordResetCodeHash = codeHash;
+        PasswordResetExpiresAt = expiresAt;
+        Touch();
+    }
+
+    /// <summary>Clears any pending reset code (after use or on password change).</summary>
+    public void ClearPasswordResetCode()
+    {
+        PasswordResetCodeHash = null;
+        PasswordResetExpiresAt = null;
         Touch();
     }
 

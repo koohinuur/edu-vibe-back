@@ -293,3 +293,79 @@ public sealed class AssignRoleCommandHandler(IApplicationDbContext dbContext, IC
         return Result.Ok("Role assigned.");
     }
 }
+
+/// <summary>
+/// Password-reset request. Resolves the user by email OR phone; if they exist,
+/// are active, and have a linked Telegram, stores a hashed one-time code (15-min
+/// TTL) and DMs the code via the platform bot. The response is deliberately
+/// generic for every path so it can't be used to enumerate accounts.
+/// </summary>
+public sealed class ForgotPasswordCommandHandler(
+    IApplicationDbContext dbContext,
+    IPasswordHasher passwordHasher,
+    IDateTimeProvider dateTimeProvider,
+    ITelegramNotifier notifier) : IRequestHandler<ForgotPasswordCommand, Result>
+{
+    private const string Generic = "If the account exists and has Telegram linked, a reset code was sent there.";
+
+    public async Task<Result> Handle(ForgotPasswordCommand request, CancellationToken cancellationToken)
+    {
+        var identifier = request.Identifier.Trim();
+        var email = identifier.ToLowerInvariant();
+        var phone = User.NormalizePhone(identifier);
+        var user = await dbContext.Users.FirstOrDefaultAsync(
+            x => x.Email == email || (phone != null && x.Phone == phone), cancellationToken);
+        if (user is null || user.Status != UserStatus.Active) return Result.Ok(Generic);
+
+        var tg = await dbContext.TelegramAccounts
+            .FirstOrDefaultAsync(t => t.UserId == user.Id, cancellationToken);
+        if (tg is null) return Result.Ok(Generic);
+
+        var code = RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6");
+        user.SetPasswordResetCode(passwordHasher.Hash(code), dateTimeProvider.UtcNow.AddMinutes(15));
+        await dbContext.SaveChangesAsync(cancellationToken);
+
+        await notifier.SendToUserAsync(
+            tg.TelegramUserId,
+            $"EduVibe password reset code: {code}\nIt expires in 15 minutes. If you didn't request this, ignore this message.",
+            cancellationToken);
+
+        return Result.Ok(Generic);
+    }
+}
+
+/// <summary>
+/// Completes a reset: validates the new password, then requires a matching,
+/// unexpired code for the user resolved by email OR phone. On success the
+/// password is set, the code cleared, and other sessions invalidated.
+/// </summary>
+public sealed class ResetPasswordCommandHandler(
+    IApplicationDbContext dbContext,
+    IPasswordHasher passwordHasher,
+    IDateTimeProvider dateTimeProvider) : IRequestHandler<ResetPasswordCommand, Result>
+{
+    public async Task<Result> Handle(ResetPasswordCommand request, CancellationToken cancellationToken)
+    {
+        if (PasswordPolicy.Validate(request.NewPassword) is { } policyError)
+            return Result.Fail("VALIDATION", policyError);
+
+        var identifier = request.Identifier.Trim();
+        var email = identifier.ToLowerInvariant();
+        var phone = User.NormalizePhone(identifier);
+        var user = await dbContext.Users.FirstOrDefaultAsync(
+            x => x.Email == email || (phone != null && x.Phone == phone), cancellationToken);
+
+        if (user is null
+            || user.PasswordResetCodeHash is null
+            || user.PasswordResetExpiresAt is null
+            || user.PasswordResetExpiresAt < dateTimeProvider.UtcNow
+            || !passwordHasher.Verify(request.Code.Trim(), user.PasswordResetCodeHash))
+            return Result.Fail("INVALID_RESET", "Invalid or expired code.");
+
+        user.SetPasswordHash(passwordHasher.Hash(request.NewPassword));
+        user.ClearPasswordResetCode();
+        user.ClearRefreshToken(); // sign out other sessions
+        await dbContext.SaveChangesAsync(cancellationToken);
+        return Result.Ok("Password reset. You can now sign in with your new password.");
+    }
+}
