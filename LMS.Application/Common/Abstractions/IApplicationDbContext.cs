@@ -74,6 +74,7 @@ public interface IApplicationDbContext
     DbSet<MarketingCourse> MarketingCourses { get; }
     DbSet<MarketingVideo> MarketingVideos { get; }
     DbSet<MockTestSlot> MockTestSlots { get; }
+    DbSet<MockTestRegistration> MockTestRegistrations { get; }
     DbSet<TelegramAccount> TelegramAccounts { get; }
     DbSet<TelegramSettings> TelegramSettings { get; }
     DbSet<TelegramDeepLinkToken> TelegramDeepLinkTokens { get; }
