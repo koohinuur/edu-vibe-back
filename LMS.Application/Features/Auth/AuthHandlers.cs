@@ -33,6 +33,7 @@ public sealed class RegisterUserCommandHandler(
         if (role is null) return Result<AuthTokensResponse>.Fail("ROLE_NOT_FOUND", "Student role is not configured.");
 
         var user = new User(email, passwordHasher.Hash(request.Password));
+        user.SetPhone(request.Phone);
         await dbContext.Users.AddAsync(user, cancellationToken);
         await dbContext.SaveChangesAsync(cancellationToken);
 
@@ -91,8 +92,14 @@ public sealed class LoginCommandHandler(
 {
     public async Task<Result<AuthTokensResponse>> Handle(LoginCommand request, CancellationToken cancellationToken)
     {
-        var email = request.Email.Trim().ToLowerInvariant();
-        var user = await dbContext.Users.FirstOrDefaultAsync(x => x.Email == email, cancellationToken);
+        // The identifier may be an email OR a phone. Match by whichever fits so
+        // users can sign in with either. (The command field is still named Email
+        // for wire-compat; it carries the identifier.)
+        var identifier = request.Email.Trim();
+        var email = identifier.ToLowerInvariant();
+        var phone = Domain.Entities.User.NormalizePhone(identifier);
+        var user = await dbContext.Users.FirstOrDefaultAsync(
+            x => x.Email == email || (phone != null && x.Phone == phone), cancellationToken);
         if (user is null) return Result<AuthTokensResponse>.Fail("INVALID_CREDENTIALS", "Invalid credentials.");
         if (user.Status != UserStatus.Active)
             return Result<AuthTokensResponse>.Fail("USER_INACTIVE", "User is not active.");

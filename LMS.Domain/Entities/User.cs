@@ -1,3 +1,4 @@
+using System.Linq;
 using LMS.Domain.Common;
 using LMS.Domain.Enums;
 using LMS.Domain.Exceptions;
@@ -17,6 +18,9 @@ public sealed class User : BaseEntity
     }
 
     public string Email { get; private set; }
+    /// <summary>Optional phone, usable as a login identifier. Stored normalized
+    /// (leading '+' plus digits only). Set via <see cref="SetPhone"/>.</summary>
+    public string? Phone { get; private set; }
     public string PasswordHash { get; private set; }
     public string? RefreshTokenHash { get; private set; }
     public DateTime? RefreshTokenExpiresAt { get; private set; }
@@ -45,6 +49,24 @@ public sealed class User : BaseEntity
         if (string.IsNullOrWhiteSpace(email)) throw new DomainException("Email is required.");
         Email = email.Trim().ToLowerInvariant();
         Touch();
+    }
+
+    /// <summary>Sets (or clears) the login phone. Normalizes to '+' + digits.</summary>
+    public void SetPhone(string? phone)
+    {
+        Phone = NormalizePhone(phone);
+        Touch();
+    }
+
+    /// <summary>Normalizes a phone to a leading '+' (if present) plus digits, or
+    /// null when empty. Used both for storage and for matching on login.</summary>
+    public static string? NormalizePhone(string? phone)
+    {
+        if (string.IsNullOrWhiteSpace(phone)) return null;
+        var trimmed = phone.Trim();
+        var plus = trimmed.StartsWith('+') ? "+" : "";
+        var digits = new string(trimmed.Where(char.IsDigit).ToArray());
+        return digits.Length == 0 ? null : plus + digits;
     }
 
     public void SetRefreshToken(string refreshTokenHash, DateTime expiresAt)
