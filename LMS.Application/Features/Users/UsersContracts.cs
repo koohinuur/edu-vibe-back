@@ -11,7 +11,7 @@ public sealed record GetUsersQuery(int Page = 1, int PageSize = 25, string? Sear
 
 public sealed record GetUserByIdQuery(Guid UserId) : IRequest<Result<UserDto>>;
 
-public sealed record CreateUserCommand(string Email, string Password, UserStatus Status) : IRequest<Result<UserDto>>;
+public sealed record CreateUserCommand(string Email, string Password, UserStatus Status, string? Phone = null) : IRequest<Result<UserDto>>;
 
 public sealed record UpdateUserCommand(Guid UserId, string Email, UserStatus Status) : IRequest<Result<UserDto>>;
 

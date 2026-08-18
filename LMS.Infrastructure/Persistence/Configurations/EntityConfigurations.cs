@@ -300,6 +300,8 @@ public sealed class PaymentConfiguration : IEntityTypeConfiguration<Payment>
         b.ToTable("payments");
         b.HasKey(x => x.Id);
         b.Property(x => x.Amount).HasPrecision(18, 2);
+        // Currency defaults to UZS so existing rows backfill cleanly on migrate.
+        b.Property(x => x.Currency).HasDefaultValue(LMS.Domain.Enums.Currency.UZS);
         b.HasOne(x => x.Class).WithMany().HasForeignKey(x => x.ClassId).OnDelete(DeleteBehavior.SetNull);
         b.HasIndex(x => new { x.ClassId, x.PeriodMonth });
     }
@@ -818,6 +820,25 @@ public sealed class MockTestSlotConfiguration : IEntityTypeConfiguration<MockTes
         b.Property(x => x.DurationText).HasMaxLength(64);
         // Public list filters by IsActive + future StartsAt, ordered by StartsAt.
         b.HasIndex(x => new { x.IsActive, x.StartsAt });
+    }
+}
+
+public sealed class MockTestRegistrationConfiguration : IEntityTypeConfiguration<MockTestRegistration>
+{
+    public void Configure(EntityTypeBuilder<MockTestRegistration> b)
+    {
+        b.ToTable("mock_test_registrations");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.FullName).IsRequired().HasMaxLength(256);
+        b.Property(x => x.Phone).HasMaxLength(32);
+        b.Property(x => x.Email).HasMaxLength(256);
+        b.Property(x => x.ResultNotes).HasMaxLength(2000);
+        foreach (var score in new[] { nameof(MockTestRegistration.Listening), nameof(MockTestRegistration.Reading),
+                     nameof(MockTestRegistration.Writing), nameof(MockTestRegistration.Speaking),
+                     nameof(MockTestRegistration.Overall) })
+            b.Property(score).HasPrecision(4, 1);
+        b.HasOne(x => x.Slot).WithMany().HasForeignKey(x => x.SlotId).OnDelete(DeleteBehavior.Cascade);
+        b.HasIndex(x => x.SlotId);
     }
 }
 

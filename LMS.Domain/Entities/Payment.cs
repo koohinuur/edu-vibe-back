@@ -13,7 +13,8 @@ public sealed class Payment : BaseEntity
     /// required for new payments (older rows pre-dating group billing keep a
     /// null ClassId). PeriodMonth is normalised to the 1st of the month.
     /// </summary>
-    public Payment(Guid studentProfileId, Guid classId, DateOnly periodMonth, decimal amount, PaymentMethod method)
+    public Payment(Guid studentProfileId, Guid classId, DateOnly periodMonth, decimal amount, PaymentMethod method,
+        Currency currency = Currency.UZS)
     {
         if (studentProfileId == Guid.Empty) throw new DomainException("Student profile id is required.");
         if (classId == Guid.Empty) throw new DomainException("Class is required.");
@@ -24,6 +25,7 @@ public sealed class Payment : BaseEntity
         PeriodMonth = new DateOnly(periodMonth.Year, periodMonth.Month, 1);
         Amount = amount;
         Method = method;
+        Currency = currency;
         Status = PaymentStatus.Pending;
     }
 
@@ -39,6 +41,8 @@ public sealed class Payment : BaseEntity
 
     public decimal Amount { get; private set; }
     public PaymentMethod Method { get; private set; }
+    /// <summary>Currency of <see cref="Amount"/>. Defaults to UZS for legacy rows.</summary>
+    public Currency Currency { get; private set; }
     public PaymentStatus Status { get; private set; }
 
     public void MarkPaid()
