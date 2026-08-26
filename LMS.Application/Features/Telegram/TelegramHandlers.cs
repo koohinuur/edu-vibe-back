@@ -208,10 +208,7 @@ public sealed class TelegramAuthCommandHandler(
         var roles = await dbContext.UserRoles.Where(x => x.UserId == user.Id)
             .Join(dbContext.Roles, ur => ur.RoleId, r => r.Id, (ur, r) => r.Code)
             .ToArrayAsync(cancellationToken);
-        var permissions = await dbContext.UserRoles.Where(x => x.UserId == user.Id)
-            .Join(dbContext.RolePermissions, ur => ur.RoleId, rp => rp.RoleId, (ur, rp) => rp.PermissionId)
-            .Join(dbContext.Permissions, pid => pid, p => p.Id, (pid, p) => p.Code)
-            .Distinct()
+        var permissions = await dbContext.EffectivePermissionCodes(user.Id)
             .ToArrayAsync(cancellationToken);
 
         var studentProfileId = await dbContext.StudentProfiles
