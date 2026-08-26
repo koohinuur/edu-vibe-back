@@ -36,3 +36,9 @@ public sealed record CreatePermissionCommand(string Code, string Module, string?
 public sealed record UpdatePermissionCommand(Guid PermissionId, string Code, string Module, string? Description) : IRequest<Result<PermissionDto>>;
 public sealed record DeletePermissionCommand(Guid PermissionId) : IRequest<Result>;
 public sealed record AssignRolePermissionsCommand(Guid RoleId, IReadOnlyCollection<Guid> PermissionIds) : IRequest<Result>;
+
+/// <summary>The permission ids granted DIRECTLY to a user (on top of their roles).</summary>
+public sealed record GetUserPermissionsQuery(Guid UserId) : IRequest<Result<IReadOnlyCollection<Guid>>>;
+
+/// <summary>Replace a user's direct permission grants with exactly this set.</summary>
+public sealed record SetUserPermissionsCommand(Guid UserId, IReadOnlyCollection<Guid> PermissionIds) : IRequest<Result>;

@@ -27,10 +27,9 @@ public sealed class PermissionAuthorizationHandler(IApplicationDbContext db) : A
         var userIdRaw = context.User.FindFirstValue("userId");
         if (!Guid.TryParse(userIdRaw, out var userId)) return;
 
-        var hasPermission = await db.UserRoles
-            .Where(ur => ur.UserId == userId)
-            .Join(db.RolePermissions, ur => ur.RoleId, rp => rp.RoleId, (ur, rp) => rp.PermissionId)
-            .Join(db.Permissions, pid => pid, p => p.Id, (pid, p) => p.Code)
+        // Union of role grants + direct per-user grants — so a permission handed
+        // to a user directly takes effect on the next request, without re-login.
+        var hasPermission = await db.EffectivePermissionCodes(userId)
             .AnyAsync(code => code == requirement.Permission);
 
         if (hasPermission) context.Succeed(requirement);
