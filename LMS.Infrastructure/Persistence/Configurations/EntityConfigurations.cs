@@ -62,6 +62,24 @@ public sealed class RolePermissionConfiguration : IEntityTypeConfiguration<RoleP
     }
 }
 
+public sealed class UserPermissionConfiguration : IEntityTypeConfiguration<UserPermission>
+{
+    public void Configure(EntityTypeBuilder<UserPermission> b)
+    {
+        b.ToTable("user_permissions");
+        b.HasKey(x => x.Id);
+        // The authz handler + token issuers filter on UserId; the unique pair
+        // guards against duplicate grants of the same permission to a user.
+        b.HasIndex(x => new { x.UserId, x.PermissionId }).IsUnique();
+        b.HasIndex(x => x.UserId).HasDatabaseName("ix_user_permissions_user_id");
+        // Grants follow the user (cleaned up if the user is removed); a permission
+        // that's granted can't be hard-deleted until the grant is cleared first
+        // (the DeletePermission handler clears them alongside role grants).
+        b.HasOne(x => x.User).WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        b.HasOne(x => x.Permission).WithMany().HasForeignKey(x => x.PermissionId).OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
 public sealed class UserRoleConfiguration : IEntityTypeConfiguration<UserRole>
 {
     public void Configure(EntityTypeBuilder<UserRole> b)

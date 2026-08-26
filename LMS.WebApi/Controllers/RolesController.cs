@@ -90,4 +90,20 @@ public sealed class RolesController(ISender sender) : ControllerBase
         var r = await sender.Send(new GetAccessOverviewQuery(), ct);
         return Ok(ApiResponse<IReadOnlyCollection<UserAccessDto>>.Ok(r.Data, r.Message));
     }
+
+    /// <summary>The permission ids granted directly to one user (on top of their roles).</summary>
+    [HttpGet("users/{userId:guid}/permissions")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyCollection<Guid>>>> GetUserPermissions(Guid userId, CancellationToken ct)
+    {
+        var r = await sender.Send(new GetUserPermissionsQuery(userId), ct);
+        return Ok(ApiResponse<IReadOnlyCollection<Guid>>.Ok(r.Data, r.Message));
+    }
+
+    /// <summary>Replace a user's direct permission grants with exactly the given set.</summary>
+    [HttpPut("users/{userId:guid}/permissions")]
+    public async Task<ActionResult<ApiResponse<object>>> SetUserPermissions(Guid userId, [FromBody] IReadOnlyCollection<Guid> permissionIds, CancellationToken ct)
+    {
+        var r = await sender.Send(new SetUserPermissionsCommand(userId, permissionIds), ct);
+        return r.Success ? Ok(ApiResponse<object>.Ok(new { }, r.Message)) : BadRequest(ApiResponse<object>.Fail(r.Message ?? "Failed"));
+    }
 }

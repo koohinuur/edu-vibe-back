@@ -17,7 +17,9 @@ public sealed class RolesHandlers(IApplicationDbContext db) :
     IRequestHandler<CreatePermissionCommand, Result<PermissionDto>>,
     IRequestHandler<UpdatePermissionCommand, Result<PermissionDto>>,
     IRequestHandler<DeletePermissionCommand, Result>,
-    IRequestHandler<AssignRolePermissionsCommand, Result>
+    IRequestHandler<AssignRolePermissionsCommand, Result>,
+    IRequestHandler<GetUserPermissionsQuery, Result<IReadOnlyCollection<Guid>>>,
+    IRequestHandler<SetUserPermissionsCommand, Result>
 {
     // Permission codes that ship in the code catalog (Permissions.All) are
     // "system" — deleting one would just be re-created on next boot by the
@@ -160,9 +162,12 @@ public sealed class RolesHandlers(IApplicationDbContext db) :
             return Result.Fail("SYSTEM_PERMISSION",
                 "System permissions can't be deleted (they'd be re-created on the next boot).");
 
-        // Remove any role grants of this permission alongside it.
+        // Remove any role + direct-user grants of this permission alongside it
+        // (both FK to Permission with Restrict, so they must go first).
         var grants = await db.RolePermissions.Where(x => x.PermissionId == p.Id).ToListAsync(cancellationToken);
         db.RolePermissions.RemoveRange(grants);
+        var userGrants = await db.UserPermissions.Where(x => x.PermissionId == p.Id).ToListAsync(cancellationToken);
+        db.UserPermissions.RemoveRange(userGrants);
         db.Permissions.Remove(p);
         await db.SaveChangesAsync(cancellationToken);
         return Result.Ok("Permission deleted.");
@@ -203,5 +208,50 @@ public sealed class RolesHandlers(IApplicationDbContext db) :
         if (toRemove.Count > 0 || toAdd.Count > 0)
             await db.SaveChangesAsync(cancellationToken);
         return Result.Ok("Role permissions updated.");
+    }
+
+    public async Task<Result<IReadOnlyCollection<Guid>>> Handle(GetUserPermissionsQuery request, CancellationToken cancellationToken)
+    {
+        var ids = await db.UserPermissions.AsNoTracking()
+            .Where(x => x.UserId == request.UserId)
+            .Select(x => x.PermissionId)
+            .ToListAsync(cancellationToken);
+        return Result<IReadOnlyCollection<Guid>>.Ok(ids);
+    }
+
+    public async Task<Result> Handle(SetUserPermissionsCommand request, CancellationToken cancellationToken)
+    {
+        var userExists = await db.Users.AnyAsync(x => x.Id == request.UserId, cancellationToken);
+        if (!userExists) return Result.Fail("NOT_FOUND", "User not found.");
+
+        var desired = request.PermissionIds.Distinct().ToHashSet();
+
+        // Reject unknown ids up front so a stale id surfaces as a clean validation
+        // error instead of a raw FK violation (500) at SaveChanges.
+        if (desired.Count > 0)
+        {
+            var known = await db.Permissions
+                .Where(p => desired.Contains(p.Id))
+                .Select(p => p.Id)
+                .ToListAsync(cancellationToken);
+            if (known.Count != desired.Count)
+                return Result.Fail("VALIDATION", "One or more permission ids don't exist.");
+        }
+
+        // Diff against the current direct grants — only revoke what's removed and
+        // add what's new (a one-toggle change touches a single row).
+        var current = await db.UserPermissions.Where(x => x.UserId == request.UserId).ToListAsync(cancellationToken);
+        var currentIds = current.Select(x => x.PermissionId).ToHashSet();
+
+        var toRemove = current.Where(x => !desired.Contains(x.PermissionId)).ToList();
+        if (toRemove.Count > 0) db.UserPermissions.RemoveRange(toRemove);
+
+        var toAdd = desired.Where(id => !currentIds.Contains(id))
+            .Select(id => new UserPermission(request.UserId, id)).ToList();
+        if (toAdd.Count > 0) await db.UserPermissions.AddRangeAsync(toAdd, cancellationToken);
+
+        if (toRemove.Count > 0 || toAdd.Count > 0)
+            await db.SaveChangesAsync(cancellationToken);
+        return Result.Ok("User access updated.");
     }
 }
