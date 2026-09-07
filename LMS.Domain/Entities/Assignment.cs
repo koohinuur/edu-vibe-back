@@ -125,4 +125,13 @@ public sealed class Assignment : BaseEntity
         Status = AssignmentStatus.Closed;
         Touch();
     }
+
+    /// <summary>Reopens a closed assignment back to Published so students can submit again.</summary>
+    public void Reopen()
+    {
+        if (Status != AssignmentStatus.Closed) throw new DomainException("Only a closed assignment can be reopened.");
+
+        Status = AssignmentStatus.Published;
+        Touch();
+    }
 }
