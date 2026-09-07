@@ -12,8 +12,9 @@ namespace LMS.WebApi.Controllers;
 
 /// <summary>
 /// Reusable exercise sets — teacher/admin-authored collections of practice exercises
-/// attached to classes. Authoring/management is gated by <c>Classes.Update</c> (and
-/// owner-scoped in the handler). Exercises are authored with the SAME bulk endpoint shape
+/// attached to classes. Reading is gated by <c>Practice.Read</c> and authoring/management
+/// by <c>Tasks.Manage</c> (both held by teachers), and owner-scoped in the handler.
+/// Exercises are authored with the SAME bulk endpoint shape
 /// as lesson exercises, and students SUBMIT via the existing
 /// <c>POST /api/exercises/{exerciseId}/submit</c> — no set-specific submit endpoint, so the
 /// self-check / XP / grading engine is reused unchanged.
@@ -24,7 +25,7 @@ namespace LMS.WebApi.Controllers;
 public sealed class ExerciseSetsController(ISender sender, ICurrentUserService currentUser) : ControllerBase
 {
     [HttpPost("exercise-sets")]
-    [PermissionAuthorize(Permissions.Classes.Update)]
+    [PermissionAuthorize(Permissions.Tasks.Manage)]
     public async Task<ActionResult<ApiResponse<ExerciseSetDto>>> Create(
         [FromBody] ExerciseSetRequest body, CancellationToken ct)
     {
@@ -36,7 +37,7 @@ public sealed class ExerciseSetsController(ISender sender, ICurrentUserService c
 
     /// <summary>Sets the caller manages — their own, or all for an admin.</summary>
     [HttpGet("exercise-sets")]
-    [PermissionAuthorize(Permissions.Classes.Update)]
+    [PermissionAuthorize(Permissions.Practice.Read)]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<ExerciseSetDto>>>> List(CancellationToken ct)
     {
         var r = await sender.Send(new GetExerciseSetsQuery(), ct);
@@ -44,7 +45,7 @@ public sealed class ExerciseSetsController(ISender sender, ICurrentUserService c
     }
 
     [HttpGet("exercise-sets/{setId:guid}")]
-    [PermissionAuthorize(Permissions.Classes.Update)]
+    [PermissionAuthorize(Permissions.Practice.Read)]
     public async Task<ActionResult<ApiResponse<ExerciseSetDto>>> Get(Guid setId, CancellationToken ct)
     {
         var r = await sender.Send(new GetExerciseSetByIdQuery(setId), ct);
@@ -52,7 +53,7 @@ public sealed class ExerciseSetsController(ISender sender, ICurrentUserService c
     }
 
     [HttpPut("exercise-sets/{setId:guid}")]
-    [PermissionAuthorize(Permissions.Classes.Update)]
+    [PermissionAuthorize(Permissions.Tasks.Manage)]
     public async Task<ActionResult<ApiResponse<ExerciseSetDto>>> Update(
         Guid setId, [FromBody] ExerciseSetRequest body, CancellationToken ct)
     {
@@ -61,7 +62,7 @@ public sealed class ExerciseSetsController(ISender sender, ICurrentUserService c
     }
 
     [HttpDelete("exercise-sets/{setId:guid}")]
-    [PermissionAuthorize(Permissions.Classes.Update)]
+    [PermissionAuthorize(Permissions.Tasks.Manage)]
     public async Task<ActionResult<ApiResponse<object>>> Delete(Guid setId, CancellationToken ct)
     {
         var r = await sender.Send(new DeleteExerciseSetCommand(setId), ct);
@@ -74,7 +75,7 @@ public sealed class ExerciseSetsController(ISender sender, ICurrentUserService c
 
     /// <summary>Replace the set's attached classes wholesale. Body: <c>{ "classIds": [ … ] }</c>.</summary>
     [HttpPut("exercise-sets/{setId:guid}/classes")]
-    [PermissionAuthorize(Permissions.Classes.Update)]
+    [PermissionAuthorize(Permissions.Tasks.Manage)]
     public async Task<ActionResult<ApiResponse<object>>> SetClasses(
         Guid setId, [FromBody] SetClassesRequest body, CancellationToken ct)
     {
@@ -89,7 +90,7 @@ public sealed class ExerciseSetsController(ISender sender, ICurrentUserService c
     /// <summary>Bulk add/update the set's exercises (upsert by orderIndex) — same body shape as
     /// the lesson bulk endpoint.</summary>
     [HttpPost("exercise-sets/{setId:guid}/exercises/bulk")]
-    [PermissionAuthorize(Permissions.Classes.Update)]
+    [PermissionAuthorize(Permissions.Tasks.Manage)]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<Guid>>>> AddBulk(
         Guid setId, [FromBody] BulkExercisesRequest body, CancellationToken ct)
     {
