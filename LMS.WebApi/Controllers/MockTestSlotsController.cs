@@ -100,4 +100,27 @@ public sealed class MockTestSlotsController(ISender sender) : ControllerBase
         var r = await sender.Send(cmd with { RegistrationId = registrationId }, ct);
         return r.ToApiResult();
     }
+
+    /// <summary>Admin: mark a registrant attended / no-show (or back to unknown).</summary>
+    [HttpPut("registrations/{registrationId:guid}/attendance")]
+    [Authorize]
+    [PermissionAuthorize(Permissions.Marketing.Manage)]
+    public async Task<ActionResult<ApiResponse<MockTestRegistrationDto>>> SetAttendance(
+        Guid registrationId, [FromBody] SetMockTestAttendanceCommand cmd, CancellationToken ct)
+    {
+        var r = await sender.Send(cmd with { RegistrationId = registrationId }, ct);
+        return r.ToApiResult();
+    }
+
+    /// <summary>Admin: remove a registration from a slot's roster.</summary>
+    [HttpDelete("registrations/{registrationId:guid}")]
+    [Authorize]
+    [PermissionAuthorize(Permissions.Marketing.Manage)]
+    public async Task<ActionResult<ApiResponse<object>>> DeleteRegistration(Guid registrationId, CancellationToken ct)
+    {
+        var r = await sender.Send(new DeleteMockTestRegistrationCommand(registrationId), ct);
+        return r.Success
+            ? Ok(ApiResponse<object>.Ok(new { }, r.Message))
+            : BadRequest(ApiResponse<object>.Fail(r.Message ?? "Failed"));
+    }
 }

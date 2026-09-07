@@ -25,6 +25,12 @@ public sealed record PublishAssignmentCommand(Guid AssignmentId) : IRequest<Resu
 
 public sealed record CloseAssignmentCommand(Guid AssignmentId) : IRequest<Result<AssignmentDto>>;
 
+/// <summary>Reopens a closed assignment back to Published.</summary>
+public sealed record ReopenAssignmentCommand(Guid AssignmentId) : IRequest<Result<AssignmentDto>>;
+
+/// <summary>Permanently deletes an assignment (books, files, assignees, tasks and submissions cascade).</summary>
+public sealed record DeleteAssignmentCommand(Guid AssignmentId) : IRequest<Result>;
+
 public sealed record GetClassAssignmentsQuery(Guid ClassId) : IRequest<Result<IReadOnlyCollection<AssignmentDto>>>;
 
 public sealed record GetStudentAssignmentsQuery(Guid StudentProfileId)

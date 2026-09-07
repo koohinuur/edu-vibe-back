@@ -3,6 +3,17 @@ using LMS.Domain.Exceptions;
 
 namespace LMS.Domain.Entities;
 
+/// <summary>Whether a registrant showed up for the mock-test session.</summary>
+public enum MockTestAttendance
+{
+    /// <summary>Not marked yet (default).</summary>
+    Unknown = 0,
+    /// <summary>Showed up and sat the test.</summary>
+    Attended = 1,
+    /// <summary>Registered but did not come.</summary>
+    NoShow = 2,
+}
+
 /// <summary>
 /// One person registered for a <see cref="MockTestSlot"/>. Registrants can be
 /// public leads (name + phone/email, no account) or a logged-in student (linked
@@ -43,6 +54,10 @@ public sealed class MockTestRegistration : BaseEntity
     public decimal? Overall { get; private set; }
     public string? ResultNotes { get; private set; }
 
+    // ---- Attendance ---------------------------------------------------------
+    /// <summary>Marked by an admin on test day: did the registrant show up?</summary>
+    public MockTestAttendance Attendance { get; private set; } = MockTestAttendance.Unknown;
+
     /// <summary>Attaches (or updates) the final per-section scores + overall band.</summary>
     public void SetResult(decimal? listening, decimal? reading, decimal? writing,
         decimal? speaking, decimal? overall, string? notes)
@@ -53,6 +68,13 @@ public sealed class MockTestRegistration : BaseEntity
         Speaking = speaking;
         Overall = overall;
         ResultNotes = string.IsNullOrWhiteSpace(notes) ? null : notes.Trim();
+        Touch();
+    }
+
+    /// <summary>Marks the registrant attended / no-show (or back to unknown).</summary>
+    public void SetAttendance(MockTestAttendance status)
+    {
+        Attendance = status;
         Touch();
     }
 }
