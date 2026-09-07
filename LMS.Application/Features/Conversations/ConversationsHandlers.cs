@@ -2,6 +2,7 @@ using LMS.Application.Common.Abstractions;
 using LMS.Application.Common.Models;
 using LMS.Application.Common.Security;
 using LMS.Domain.Entities;
+using LMS.Domain.Enums;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
@@ -166,12 +167,57 @@ public sealed class ConversationsHandlers(
         // participant list doesn't blow up the IN clause and the round-trip
         // count halves. Explicit join because ConversationParticipant has no
         // navigation property (sticking with foreign-key-by-id, no inverse nav).
-        var list = await (
+        var rows = await (
             from p in db.ConversationParticipants.AsNoTracking()
             join c in db.Conversations.AsNoTracking() on p.ConversationId equals c.Id
             where p.UserId == request.UserId
-            select new ConversationDto(c.Id, c.Type, c.Title)
+            select new { c.Id, c.Type, c.Title }
         ).ToListAsync(cancellationToken);
+
+        // For a 1:1 (Direct) thread the stored Title is the name the CREATOR
+        // typed for the OTHER person — so it's wrong for that other person, who
+        // would otherwise see their own name as the thread title (and, with the
+        // per-message sender label, as the sender of every incoming message).
+        // Resolve the Direct title to the other participant's name, per viewer.
+        // Group titles are shared, so they're kept as stored.
+        var directIds = rows.Where(r => r.Type == ConversationType.Private).Select(r => r.Id).ToList();
+        var titleByConversation = new Dictionary<Guid, string>();
+        if (directIds.Count > 0)
+        {
+            var others = await db.ConversationParticipants.AsNoTracking()
+                .Where(p => directIds.Contains(p.ConversationId) && p.UserId != request.UserId)
+                .Select(p => new { p.ConversationId, p.UserId })
+                .ToListAsync(cancellationToken);
+            var otherIds = others.Select(o => o.UserId).Distinct().ToList();
+
+            var staff = await db.StaffProfiles.Where(s => otherIds.Contains(s.UserId))
+                .Select(s => new { s.UserId, s.FirstName, s.LastName }).ToListAsync(cancellationToken);
+            var students = await db.StudentProfiles.Where(s => otherIds.Contains(s.UserId))
+                .Select(s => new { s.UserId, s.FirstName, s.LastName }).ToListAsync(cancellationToken);
+            var users = await db.Users.Where(u => otherIds.Contains(u.Id))
+                .Select(u => new { u.Id, u.Email }).ToListAsync(cancellationToken);
+
+            string Name(Guid uid)
+            {
+                var st = staff.FirstOrDefault(x => x.UserId == uid);
+                var sp = students.FirstOrDefault(x => x.UserId == uid);
+                var full = string.Join(" ", new[] { st?.FirstName ?? sp?.FirstName, st?.LastName ?? sp?.LastName }
+                    .Where(s => !string.IsNullOrWhiteSpace(s)));
+                return !string.IsNullOrWhiteSpace(full) ? full : users.FirstOrDefault(u => u.Id == uid)?.Email ?? "User";
+            }
+
+            foreach (var o in others)
+                if (!titleByConversation.ContainsKey(o.ConversationId))
+                    titleByConversation[o.ConversationId] = Name(o.UserId);
+        }
+
+        var list = rows
+            .Select(r => new ConversationDto(
+                r.Id, r.Type,
+                r.Type == ConversationType.Private && titleByConversation.TryGetValue(r.Id, out var name)
+                    ? name
+                    : r.Title))
+            .ToList();
         return Result<IReadOnlyCollection<ConversationDto>>.Ok(list);
     }
 
