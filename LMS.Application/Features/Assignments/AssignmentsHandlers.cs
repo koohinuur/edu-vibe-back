@@ -13,6 +13,8 @@ public sealed class AssignmentsHandlers(
     IRequestHandler<UpdateAssignmentCommand, Result<AssignmentDto>>,
     IRequestHandler<PublishAssignmentCommand, Result<AssignmentDto>>,
     IRequestHandler<CloseAssignmentCommand, Result<AssignmentDto>>,
+    IRequestHandler<ReopenAssignmentCommand, Result<AssignmentDto>>,
+    IRequestHandler<DeleteAssignmentCommand, Result>,
     IRequestHandler<GetClassAssignmentsQuery, Result<IReadOnlyCollection<AssignmentDto>>>,
     IRequestHandler<GetStudentAssignmentsQuery, Result<IReadOnlyCollection<AssignmentDto>>>,
     IRequestHandler<GetAssignmentsQuery, Result<IReadOnlyCollection<AssignmentDto>>>,
@@ -33,6 +35,25 @@ public sealed class AssignmentsHandlers(
         a.Close();
         await db.SaveChangesAsync(cancellationToken);
         return Result<AssignmentDto>.Ok(Map(a));
+    }
+
+    public async Task<Result<AssignmentDto>> Handle(ReopenAssignmentCommand request, CancellationToken cancellationToken)
+    {
+        var a = await db.Assignments.FirstOrDefaultAsync(x => x.Id == request.AssignmentId, cancellationToken);
+        if (a is null) return Result<AssignmentDto>.Fail("NOT_FOUND", "Assignment not found.");
+        a.Reopen();
+        await db.SaveChangesAsync(cancellationToken);
+        return Result<AssignmentDto>.Ok(Map(a));
+    }
+
+    public async Task<Result> Handle(DeleteAssignmentCommand request, CancellationToken cancellationToken)
+    {
+        var a = await db.Assignments.FirstOrDefaultAsync(x => x.Id == request.AssignmentId, cancellationToken);
+        if (a is null) return Result.Fail("NOT_FOUND", "Assignment not found.");
+        // Books, files, assignees, learning tasks and submissions cascade at the DB level.
+        db.Assignments.Remove(a);
+        await db.SaveChangesAsync(cancellationToken);
+        return Result.Ok("Assignment deleted.");
     }
 
     public async Task<Result<AssignmentDto>> Handle(CreateAssignmentCommand request,

@@ -85,6 +85,28 @@ public sealed class AssignmentsController(ISender sender, IMaterialFileStore sto
         return r.ToApiResult();
     }
 
+    /// <summary>Reopen a closed assignment back to Published.</summary>
+    [HttpPost("{id:guid}/reopen")]
+    [PermissionAuthorize(Permissions.Assignments.Publish)]
+    public async Task<ActionResult<ApiResponse<AssignmentDto>>> Reopen(Guid id, CancellationToken ct)
+    {
+        var r = await sender.Send(new ReopenAssignmentCommand(id), ct);
+        return r.ToApiResult();
+    }
+
+    /// <summary>Permanently delete an assignment and everything under it.</summary>
+    [HttpDelete("{id:guid}")]
+    [PermissionAuthorize(Permissions.Assignments.Update)]
+    public async Task<ActionResult<ApiResponse<object>>> Delete(Guid id, CancellationToken ct)
+    {
+        var r = await sender.Send(new DeleteAssignmentCommand(id), ct);
+        return r.Success
+            ? Ok(ApiResponse<object>.Ok(new { }, r.Message))
+            : r.ErrorCode == "NOT_FOUND"
+                ? NotFound(ApiResponse<object>.Fail(r.Message ?? "Not found"))
+                : BadRequest(ApiResponse<object>.Fail(r.Message ?? "Failed"));
+    }
+
     // ----- Book attachments ------------------------------------------------
 
     /// <summary>Books attached to this assignment (reference material).</summary>
