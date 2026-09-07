@@ -14,7 +14,9 @@ namespace LMS.Application.Features.MarketingCms;
 public sealed class MockTestRegistrationsHandlers(IApplicationDbContext db, ICurrentUserService currentUser) :
     IRequestHandler<RegisterForMockTestCommand, Result<MockTestRegistrationDto>>,
     IRequestHandler<GetMockTestRegistrationsQuery, Result<IReadOnlyCollection<MockTestRegistrationDto>>>,
-    IRequestHandler<SetMockTestResultCommand, Result<MockTestRegistrationDto>>
+    IRequestHandler<SetMockTestResultCommand, Result<MockTestRegistrationDto>>,
+    IRequestHandler<SetMockTestAttendanceCommand, Result<MockTestRegistrationDto>>,
+    IRequestHandler<DeleteMockTestRegistrationCommand, Result>
 {
     public async Task<Result<MockTestRegistrationDto>> Handle(RegisterForMockTestCommand request, CancellationToken ct)
     {
@@ -54,7 +56,29 @@ public sealed class MockTestRegistrationsHandlers(IApplicationDbContext db, ICur
         return Result<MockTestRegistrationDto>.Ok(ToDto(reg), "Result saved.");
     }
 
+    public async Task<Result<MockTestRegistrationDto>> Handle(SetMockTestAttendanceCommand request, CancellationToken ct)
+    {
+        var reg = await db.MockTestRegistrations.FirstOrDefaultAsync(r => r.Id == request.RegistrationId, ct);
+        if (reg is null)
+            return Result<MockTestRegistrationDto>.Fail("NOT_FOUND", "Registration not found.");
+
+        reg.SetAttendance(request.Status);
+        await db.SaveChangesAsync(ct);
+        return Result<MockTestRegistrationDto>.Ok(ToDto(reg), "Attendance saved.");
+    }
+
+    public async Task<Result> Handle(DeleteMockTestRegistrationCommand request, CancellationToken ct)
+    {
+        var reg = await db.MockTestRegistrations.FirstOrDefaultAsync(r => r.Id == request.RegistrationId, ct);
+        if (reg is null)
+            return Result.Fail("NOT_FOUND", "Registration not found.");
+
+        db.MockTestRegistrations.Remove(reg);
+        await db.SaveChangesAsync(ct);
+        return Result.Ok("Registration removed.");
+    }
+
     private static MockTestRegistrationDto ToDto(MockTestRegistration r) => new(
         r.Id, r.SlotId, r.FullName, r.Phone, r.Email, r.StudentProfileId, r.CreatedAt,
-        r.Listening, r.Reading, r.Writing, r.Speaking, r.Overall, r.ResultNotes);
+        r.Listening, r.Reading, r.Writing, r.Speaking, r.Overall, r.ResultNotes, r.Attendance);
 }

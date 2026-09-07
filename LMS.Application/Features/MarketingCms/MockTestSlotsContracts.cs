@@ -1,4 +1,5 @@
 using LMS.Application.Common.Models;
+using LMS.Domain.Entities;
 using MediatR;
 
 namespace LMS.Application.Features.MarketingCms;
@@ -49,7 +50,8 @@ public sealed record MockTestRegistrationDto(
     decimal? Writing,
     decimal? Speaking,
     decimal? Overall,
-    string? ResultNotes);
+    string? ResultNotes,
+    MockTestAttendance Attendance);
 
 /// <summary>
 /// Register for a slot. Public leads pass name + phone/email; a logged-in student
@@ -72,3 +74,10 @@ public sealed record SetMockTestResultCommand(
     decimal? Speaking,
     decimal? Overall,
     string? Notes) : IRequest<Result<MockTestRegistrationDto>>;
+
+/// <summary>Admin: mark a registrant attended / no-show (or back to unknown).</summary>
+public sealed record SetMockTestAttendanceCommand(Guid RegistrationId, MockTestAttendance Status)
+    : IRequest<Result<MockTestRegistrationDto>>;
+
+/// <summary>Admin: remove a registration from a slot's roster.</summary>
+public sealed record DeleteMockTestRegistrationCommand(Guid RegistrationId) : IRequest<Result>;
