@@ -1,12 +1,13 @@
 using LMS.Application.Common.Abstractions;
 using LMS.Application.Common.Models;
+using LMS.Application.Features.Telegram;
 using LMS.Domain.Entities;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
 namespace LMS.Application.Features.MarketingCms;
 
-public sealed class MockTestSlotsHandlers(IApplicationDbContext db) :
+public sealed class MockTestSlotsHandlers(IApplicationDbContext db, ISender mediator) :
     IRequestHandler<GetMockTestSlotsQuery, Result<IReadOnlyCollection<MockTestSlotDto>>>,
     IRequestHandler<GetPublicMockTestSlotsQuery, Result<IReadOnlyCollection<MockTestSlotDto>>>,
     IRequestHandler<CreateMockTestSlotCommand, Result<MockTestSlotDto>>,
@@ -42,6 +43,18 @@ public sealed class MockTestSlotsHandlers(IApplicationDbContext db) :
             request.Capacity, request.AvailableSeats, request.SortOrder, request.IsActive);
         await db.MockTestSlots.AddAsync(s, ct);
         await db.SaveChangesAsync(ct);
+
+        // Announce a newly-opened, active mock test to every Telegram subscriber.
+        if (s.IsActive)
+        {
+            var when = s.StartsAt.AddHours(5).ToString("yyyy-MM-dd HH:mm"); // Tashkent (UTC+5, no DST)
+            const string site = "https://edu-vibe.uz";
+            await mediator.Send(new BroadcastTelegramCommand(
+                TelegramBotTexts.NewMockTest("uz", s.Title, when, site),
+                TelegramBotTexts.NewMockTest("ru", s.Title, when, site),
+                TelegramBotTexts.NewMockTest("en", s.Title, when, site)), ct);
+        }
+
         return Result<MockTestSlotDto>.Ok(Map(s));
     }
 

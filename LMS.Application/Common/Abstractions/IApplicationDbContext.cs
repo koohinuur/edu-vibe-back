@@ -77,6 +77,7 @@ public interface IApplicationDbContext
     DbSet<MockTestSlot> MockTestSlots { get; }
     DbSet<MockTestRegistration> MockTestRegistrations { get; }
     DbSet<TelegramAccount> TelegramAccounts { get; }
+    DbSet<TelegramSubscriber> TelegramSubscribers { get; }
     DbSet<TelegramSettings> TelegramSettings { get; }
     DbSet<TelegramDeepLinkToken> TelegramDeepLinkTokens { get; }
     Task<int> SaveChangesAsync(CancellationToken cancellationToken);
