@@ -51,25 +51,27 @@ public sealed class TelegramBotHandlers(IApplicationDbContext db, ITelegramNotif
         }
 
         var text = u.Text?.Trim() ?? "";
+        // Slash command, normalized: "/results@Bot extra" → "/results".
+        var cmd = text.StartsWith('/') ? text.Split(' ')[0].Split('@')[0].ToLowerInvariant() : "";
 
-        // 2) /start
-        if (text == "/start" || text.StartsWith("/start ", StringComparison.Ordinal))
+        // 2) /start or /help → the welcome + menu.
+        if (cmd is "/start" or "/help")
         {
             sub.SetState(TelegramChatState.Idle);
             await db.SaveChangesAsync(ct);
             return new TelegramReply(TelegramBotTexts.Welcome(lang), true, lang);
         }
 
-        // 3) "Ask a question" button
-        if (TelegramBotTexts.IsAskButton(text))
+        // 3) "Ask a question" — the button or /ask.
+        if (cmd == "/ask" || TelegramBotTexts.IsAskButton(text))
         {
             sub.SetState(TelegramChatState.AwaitingQuestion);
             await db.SaveChangesAsync(ct);
             return new TelegramReply(TelegramBotTexts.AskPrompt(lang), true, lang);
         }
 
-        // 4) "My results" typed instead of tapped as a contact button
-        if (TelegramBotTexts.IsResultsButton(text))
+        // 4) "My results" — the button or /results.
+        if (cmd == "/results" || TelegramBotTexts.IsResultsButton(text))
         {
             sub.SetState(TelegramChatState.Idle);
             await db.SaveChangesAsync(ct);

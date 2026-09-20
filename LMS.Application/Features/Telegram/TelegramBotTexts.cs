@@ -120,6 +120,15 @@ public static class TelegramBotTexts
         _ => "Use the buttons below: see your results or ask a question 👇",
     };
 
+    // ---- Bot command menu (setMyCommands) --------------------------------
+    /// <summary>The "/" command list + Menu button entries for a locale.</summary>
+    public static (string Command, string Description)[] Commands(string lang) => lang switch
+    {
+        "uz" => new[] { ("start", "Boshlash"), ("results", "Natijalarim"), ("ask", "Savol berish"), ("help", "Yordam") },
+        "ru" => new[] { ("start", "Начать"), ("results", "Мои результаты"), ("ask", "Задать вопрос"), ("help", "Помощь") },
+        _ => new[] { ("start", "Start"), ("results", "My mock results"), ("ask", "Ask a question"), ("help", "Help") },
+    };
+
     // ---- Broadcast templates (plain text — the DM queue sends no parse_mode) --
     public static string NewMockTest(string lang, string title, string when, string? site) => (lang switch
     {

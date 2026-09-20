@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using LMS.Application.Features.Telegram;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -6,15 +7,15 @@ using Microsoft.Extensions.Options;
 namespace LMS.Infrastructure.Services;
 
 /// <summary>
-/// On startup, registers the bot's <em>default menu button</em> as a Web App
-/// launcher pointing at the production Mini App (<c>{MiniAppUrl}/tg</c>) via the
-/// Bot API (<c>setChatMenuButton</c>). This makes the Mini App the bot's default
-/// "Open App" surface without anyone touching @BotFather — the operator only sets
-/// the bot token + Mini App URL in server config.
+/// On startup, registers the bot's <em>command menu</em> via the Bot API
+/// (<c>setMyCommands</c> for uz/ru/en) and points the chat <em>Menu button</em>
+/// at those commands (<c>setChatMenuButton</c> → type "commands"). This makes the
+/// bot fully usable from Telegram's native menu — /start, /results, /ask, /help —
+/// without depending on the Mini App webview.
 ///
 /// Runs as a background task so it never blocks host startup, and is fully
-/// fire-and-forget: if the token is missing, the URL isn't https, or Telegram is
-/// unreachable, it logs and moves on. Idempotent — safe to re-run every boot.
+/// fire-and-forget: if the token is missing or Telegram is unreachable, it logs
+/// and moves on. Idempotent — safe to re-run every boot.
 /// </summary>
 internal sealed class TelegramMenuButtonHostedService : BackgroundService
 {
@@ -38,49 +39,36 @@ internal sealed class TelegramMenuButtonHostedService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         var token = _options.BotToken;
-        var miniApp = _options.MiniAppUrl?.Trim().TrimEnd('/');
 
-        // Nothing to configure (local/dev without a token or URL) — no-op, no noise.
+        // Nothing to configure (local/dev without a token) — no-op, no noise.
         // A real bot token is "<id>:<secret>"; skip obvious placeholders so dev
         // boots clean instead of logging a confusing 404 from api.telegram.org.
-        if (string.IsNullOrWhiteSpace(token) || !token.Contains(':') || string.IsNullOrWhiteSpace(miniApp))
+        if (string.IsNullOrWhiteSpace(token) || !token.Contains(':'))
             return;
-
-        // The Mini App entry page is /tg. Telegram only accepts https Web App URLs,
-        // so skip http/localhost so dev boots clean instead of erroring.
-        var webAppUrl = $"{miniApp}/tg";
-        if (!webAppUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-        {
-            _logger.LogInformation(
-                "Telegram menu button not set — Mini App URL must be https (got {Url}).", webAppUrl);
-            return;
-        }
 
         try
         {
             var http = _httpFactory.CreateClient(HttpClientName);
-            var url = $"{ApiBase}/bot{token}/setChatMenuButton";
-            var payload = new
-            {
-                menu_button = new
-                {
-                    type = "web_app",
-                    text = "Open App",
-                    web_app = new { url = webAppUrl },
-                },
-            };
 
-            using var response = await http.PostAsJsonAsync(url, payload, stoppingToken);
-            if (response.IsSuccessStatusCode)
+            // 1) Register the command menu per language. The default set (no
+            //    language_code) covers everyone; uz/ru add localized descriptions.
+            foreach (var lang in new[] { "en", "uz", "ru" })
             {
-                _logger.LogInformation("Telegram default menu button set to Mini App {Url}.", webAppUrl);
+                var commands = TelegramBotTexts.Commands(lang)
+                    .Select(c => new { command = c.Command, description = c.Description })
+                    .ToArray();
+                object payload = lang == "en"
+                    ? new { commands }
+                    : new { commands, language_code = lang };
+                await PostAsync(http, token, "setMyCommands", payload, stoppingToken);
             }
-            else
-            {
-                var body = await response.Content.ReadAsStringAsync(stoppingToken);
-                _logger.LogWarning(
-                    "Telegram setChatMenuButton failed ({Status}): {Body}", (int)response.StatusCode, body);
-            }
+
+            // 2) Make the Menu button show those commands (type "commands"), so the
+            //    bot is navigable from the native menu without the Mini App webview.
+            await PostAsync(http, token, "setChatMenuButton",
+                new { menu_button = new { type = "commands" } }, stoppingToken);
+
+            _logger.LogInformation("Telegram bot commands + menu button configured.");
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
@@ -88,7 +76,18 @@ internal sealed class TelegramMenuButtonHostedService : BackgroundService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Telegram setChatMenuButton threw — menu button not set.");
+            _logger.LogWarning(ex, "Telegram bot setup (commands/menu) threw — skipped.");
+        }
+    }
+
+    private async Task PostAsync(HttpClient http, string token, string method, object payload, CancellationToken ct)
+    {
+        var url = $"{ApiBase}/bot{token}/{method}";
+        using var response = await http.PostAsJsonAsync(url, payload, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(ct);
+            _logger.LogWarning("Telegram {Method} failed ({Status}): {Body}", method, (int)response.StatusCode, body);
         }
     }
 }
