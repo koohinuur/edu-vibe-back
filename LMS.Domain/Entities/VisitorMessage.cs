@@ -72,4 +72,5 @@ public enum VisitorMessageSource
     DemoLesson = 2,
     MockTest = 3,
     LevelCheck = 4,
+    Telegram = 5,
 }

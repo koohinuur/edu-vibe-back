@@ -860,6 +860,20 @@ public sealed class MockTestRegistrationConfiguration : IEntityTypeConfiguration
     }
 }
 
+public sealed class TelegramSubscriberConfiguration : IEntityTypeConfiguration<TelegramSubscriber>
+{
+    public void Configure(EntityTypeBuilder<TelegramSubscriber> b)
+    {
+        b.ToTable("telegram_subscribers");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.Phone).HasMaxLength(32);
+        b.Property(x => x.LanguageCode).HasMaxLength(8);
+        b.Property(x => x.FirstName).HasMaxLength(128);
+        // One row per Telegram chat; ChatId is how the bot DMs them.
+        b.HasIndex(x => x.ChatId).IsUnique();
+    }
+}
+
 public sealed class TelegramAccountConfiguration : IEntityTypeConfiguration<TelegramAccount>
 {
     public void Configure(EntityTypeBuilder<TelegramAccount> b)

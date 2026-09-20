@@ -105,22 +105,23 @@ public sealed class TelegramController(ISender sender) : ControllerBase
         return Ok(ApiResponse<TelegramSettingsDto>.Ok(result.Data, result.Message));
     }
 
-    // ----- Bot webhook (/start welcome) -----------------------------------
+    // ----- Bot webhook (interactive) --------------------------------------
 
     /// <summary>
     /// Telegram Bot API webhook. Anonymous (Telegram calls it directly) but gated
     /// by the shared <c>Telegram:WebhookSecret</c> echoed in the
     /// <c>X-Telegram-Bot-Api-Secret-Token</c> header — so it fails closed until a
-    /// secret is configured. On <c>/start</c> we answer via Telegram's "respond
-    /// with a method" convention: a localized welcome plus an inline keyboard whose
-    /// primary button opens the marketing site (edu-vibe.uz) and, for students, the
-    /// Mini App. Every other update is acknowledged (200) and ignored.
+    /// secret is configured. Each update is handed to the bot handler (which
+    /// tracks the subscriber, returns mock results by phone, captures questions,
+    /// or shows the menu); we answer via Telegram's "respond with a method"
+    /// convention — a localized message plus the persistent reply keyboard.
     /// </summary>
     [HttpPost("webhook")]
     [AllowAnonymous]
-    public IActionResult Webhook(
+    public async Task<IActionResult> Webhook(
         [FromBody] TgUpdate update,
-        [FromServices] IOptions<TelegramOptions> options)
+        [FromServices] IOptions<TelegramOptions> options,
+        CancellationToken ct)
     {
         var opts = options.Value;
 
@@ -129,18 +130,22 @@ public sealed class TelegramController(ISender sender) : ControllerBase
             return Unauthorized();
 
         var msg = update.Message;
-        var text = msg?.Text?.Trim();
         var chatId = msg?.Chat?.Id;
+        if (chatId is null) return Ok();
 
-        var isStart = text is not null &&
-            (text == "/start" || text.StartsWith("/start ", StringComparison.Ordinal));
-        if (chatId is null || !isStart)
-            return Ok();
+        var input = new TelegramUpdateInput(
+            ChatId: chatId.Value,
+            Text: msg!.Text,
+            ContactPhone: msg.Contact?.PhoneNumber,
+            LanguageCode: msg.From?.LanguageCode,
+            FirstName: msg.From?.FirstName);
 
-        var reply = BuildStartReply(chatId.Value, NormalizeLang(msg!.From?.LanguageCode), opts);
+        var reply = await sender.Send(new ProcessTelegramUpdateCommand(input), ct);
+        if (reply is null) return Ok();
+
         // Serialize ourselves so the raw snake_case Bot API keys survive regardless
         // of the JSON naming policy MVC is configured with.
-        return Content(JsonSerializer.Serialize(reply), "application/json");
+        return Content(JsonSerializer.Serialize(BuildReply(chatId.Value, reply)), "application/json");
     }
 
     /// <summary>Constant-time compare of the webhook secret header.</summary>
@@ -151,80 +156,52 @@ public sealed class TelegramController(ISender sender) : ControllerBase
             Encoding.UTF8.GetBytes(provided), Encoding.UTF8.GetBytes(expected));
     }
 
-    /// <summary>Telegram <c>language_code</c> → one of our three supported locales.</summary>
-    private static string NormalizeLang(string? code)
+    /// <summary>
+    /// The Bot API sendMessage payload: the localized body plus (when asked) the
+    /// persistent reply keyboard — a request_contact "My results" button and an
+    /// "Ask a question" button, in the subscriber's language.
+    /// </summary>
+    private static Dictionary<string, object?> BuildReply(long chatId, TelegramReply reply)
     {
-        if (string.IsNullOrEmpty(code)) return "en";
-        if (code.StartsWith("uz", StringComparison.OrdinalIgnoreCase)) return "uz";
-        if (code.StartsWith("ru", StringComparison.OrdinalIgnoreCase)) return "ru";
-        return "en";
-    }
-
-    private const string WelcomeUz =
-        "<b>EduVibe'ga xush kelibsiz!</b> 📚\n\n" +
-        "Aniqlik bilan o'rganing, ishonch bilan natija qiling — IELTS, SAT va umumiy ingliz tili.\n\n" +
-        "🎯 <b>Yangimisiz?</b> Saytimizdan bepul demo darsga yoziling.\n" +
-        "🎓 <b>O'quvchimisiz?</b> Ilovadan darslar, vazifalar va baholaringizni ko'ring.";
-
-    private const string WelcomeRu =
-        "<b>Добро пожаловать в EduVibe!</b> 📚\n\n" +
-        "Учитесь с ясностью, достигайте с уверенностью — IELTS, SAT и общий английский.\n\n" +
-        "🎯 <b>Впервые здесь?</b> Запишитесь на бесплатный демо-урок на сайте.\n" +
-        "🎓 <b>Уже учитесь?</b> Откройте приложение — уроки, задания и оценки.";
-
-    private const string WelcomeEn =
-        "<b>Welcome to EduVibe!</b> 📚\n\n" +
-        "Learn with clarity, perform with confidence — IELTS, SAT and general English.\n\n" +
-        "🎯 <b>New here?</b> Book a free demo lesson on our site.\n" +
-        "🎓 <b>Already a student?</b> Open the app for your lessons, homework and grades.";
-
-    private static Dictionary<string, object?> BuildStartReply(long chatId, string lang, TelegramOptions opts)
-    {
-        var (body, siteLabel, appLabel) = lang switch
-        {
-            "uz" => (WelcomeUz, "🌐 Sayt — edu-vibe.uz", "📚 Ilovani ochish"),
-            "ru" => (WelcomeRu, "🌐 Сайт — edu-vibe.uz", "📚 Открыть приложение"),
-            _ => (WelcomeEn, "🌐 Website — edu-vibe.uz", "📚 Open the app"),
-        };
-
-        var rows = new List<List<Dictionary<string, object?>>>();
-
-        // Primary CTA — the marketing site (always present).
-        var website = string.IsNullOrWhiteSpace(opts.WebsiteUrl) ? "https://edu-vibe.uz" : opts.WebsiteUrl.Trim();
-        rows.Add([new() { ["text"] = siteLabel, ["url"] = website }]);
-
-        // Students — open the Mini App, only when a real https Mini App URL is set.
-        var miniApp = opts.MiniAppUrl?.Trim().TrimEnd('/');
-        if (!string.IsNullOrWhiteSpace(miniApp) &&
-            miniApp.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-        {
-            rows.Add([new()
-            {
-                ["text"] = appLabel,
-                ["web_app"] = new Dictionary<string, object?> { ["url"] = $"{miniApp}/tg" },
-            }]);
-        }
-
-        return new Dictionary<string, object?>
+        var payload = new Dictionary<string, object?>
         {
             ["method"] = "sendMessage",
             ["chat_id"] = chatId,
-            ["text"] = body,
+            ["text"] = reply.Text,
             ["parse_mode"] = "HTML",
             ["disable_web_page_preview"] = true,
-            ["reply_markup"] = new Dictionary<string, object?> { ["inline_keyboard"] = rows },
         };
+
+        if (reply.ShowMenu)
+        {
+            payload["reply_markup"] = new Dictionary<string, object?>
+            {
+                ["keyboard"] = new List<List<Dictionary<string, object?>>>
+                {
+                    new() { new() { ["text"] = TelegramBotTexts.ResultsButton(reply.Lang), ["request_contact"] = true } },
+                    new() { new() { ["text"] = TelegramBotTexts.AskButton(reply.Lang) } },
+                },
+                ["resize_keyboard"] = true,
+            };
+        }
+
+        return payload;
     }
 }
 
-// ---- Minimal Bot API update shape — only the fields /start needs. ----------
+// ---- Minimal Bot API update shape — only the fields the bot needs. ---------
 public sealed record TgUpdate([property: JsonPropertyName("message")] TgMessage? Message);
 
 public sealed record TgMessage(
     [property: JsonPropertyName("text")] string? Text,
     [property: JsonPropertyName("chat")] TgChat? Chat,
-    [property: JsonPropertyName("from")] TgFrom? From);
+    [property: JsonPropertyName("from")] TgFrom? From,
+    [property: JsonPropertyName("contact")] TgContact? Contact);
 
 public sealed record TgChat([property: JsonPropertyName("id")] long Id);
 
-public sealed record TgFrom([property: JsonPropertyName("language_code")] string? LanguageCode);
+public sealed record TgFrom(
+    [property: JsonPropertyName("language_code")] string? LanguageCode,
+    [property: JsonPropertyName("first_name")] string? FirstName);
+
+public sealed record TgContact([property: JsonPropertyName("phone_number")] string? PhoneNumber);
