@@ -1,5 +1,6 @@
 using LMS.Application.Common.Abstractions;
 using LMS.Application.Common.Models;
+using LMS.Application.Features.Telegram;
 using LMS.Domain.Entities;
 using LMS.Domain.Enums;
 using MediatR;
@@ -7,7 +8,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LMS.Application.Features.Announcements;
 
-public sealed class AnnouncementsHandlers(IApplicationDbContext db) :
+public sealed class AnnouncementsHandlers(IApplicationDbContext db, ISender mediator) :
     IRequestHandler<GetAnnouncementsQuery, Result<IReadOnlyCollection<AnnouncementDto>>>,
     IRequestHandler<GetPublicAnnouncementsQuery, Result<IReadOnlyCollection<AnnouncementDto>>>,
     IRequestHandler<CreateAnnouncementCommand, Result<AnnouncementDto>>,
@@ -60,6 +61,16 @@ public sealed class AnnouncementsHandlers(IApplicationDbContext db) :
             request.PublishesAt, request.ExpiresAt, request.AuthorUserId);
         await db.Announcements.AddAsync(entity, ct);
         await db.SaveChangesAsync(ct);
+
+        // Push "Everyone" news that is live now out to every Telegram bot
+        // subscriber. Same body for all languages — it's the admin's own text.
+        var liveNow = entity.PublishesAt is null || entity.PublishesAt <= DateTime.UtcNow;
+        if (entity.Audience == AnnouncementAudience.Everyone && liveNow)
+        {
+            var text = $"📢 {request.Title}\n\n{request.Body}";
+            await mediator.Send(new BroadcastTelegramCommand(text, text, text), ct);
+        }
+
         return Result<AnnouncementDto>.Ok(Map(entity));
     }
 

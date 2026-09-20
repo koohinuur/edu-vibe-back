@@ -37,6 +37,7 @@ public sealed class LMSDbContext : DbContext, IApplicationDbContext
     public DbSet<Permission> Permissions => Set<Permission>();
     public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
     public DbSet<UserPermission> UserPermissions => Set<UserPermission>();
+    public DbSet<TelegramSubscriber> TelegramSubscribers => Set<TelegramSubscriber>();
     public DbSet<UserRole> UserRoles => Set<UserRole>();
     public DbSet<StaffProfile> StaffProfiles => Set<StaffProfile>();
     public DbSet<StudentProfile> StudentProfiles => Set<StudentProfile>();
