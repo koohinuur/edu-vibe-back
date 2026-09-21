@@ -26,6 +26,20 @@ public sealed class MockTestRegistrationsHandlers(IApplicationDbContext db, ICur
         if (!slot.IsActive)
             return Result<MockTestRegistrationDto>.Fail("CLOSED", "This mock test isn't open for registration.");
 
+        // Dedupe: the booking widget can fire more than once (double-tap, retry,
+        // the homepage + mock page both submitting), which piled the same person
+        // into the roster several times. If this slot already has a registration
+        // for the same phone (matched on digits), reuse it instead of inserting.
+        var digits = new string((request.Phone ?? string.Empty).Where(char.IsDigit).ToArray());
+        if (digits.Length >= 7)
+        {
+            var tail = digits.Length >= 9 ? digits[^9..] : digits;
+            var dup = await db.MockTestRegistrations
+                .FirstOrDefaultAsync(r => r.SlotId == slot.Id && r.Phone != null && r.Phone.Contains(tail), ct);
+            if (dup is not null)
+                return Result<MockTestRegistrationDto>.Ok(ToDto(dup), "Already registered.");
+        }
+
         // A logged-in student is linked to their profile; anonymous visitors register as leads.
         var reg = new MockTestRegistration(
             slot.Id, request.FullName, request.Phone, request.Email, currentUser.StudentProfileId);
