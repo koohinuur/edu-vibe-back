@@ -1,5 +1,6 @@
 using LMS.Application.Common.Abstractions;
 using LMS.Application.Common.Security;
+using LMS.Application.Features.Classes;
 using LMS.Domain.Entities;
 
 namespace LMS.Application.Features.Curriculum;
@@ -23,4 +24,12 @@ internal static class CurriculumAuthorization
     /// <summary>Overload for query projections that only pulled the class's teacher id.</summary>
     public static bool CanManageClass(ICurrentUserService user, Guid? classTeacherUserId)
         => user.IsAdmin() || (classTeacherUserId is { } teacherId && teacherId == user.UserId);
+
+    /// <summary>
+    /// Co-teacher-aware check: an admin, the primary teacher, OR any co-teacher of
+    /// the class may manage it. Prefer this everywhere a class has multiple teachers.
+    /// </summary>
+    public static async Task<bool> CanManageClassAsync(
+        IApplicationDbContext db, ICurrentUserService user, Guid classId, CancellationToken ct)
+        => user.IsAdmin() || (user.UserId is { } uid && await db.IsClassTeacherAsync(classId, uid, ct));
 }

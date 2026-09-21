@@ -16,6 +16,8 @@ public sealed class ClassesHandlers(IApplicationDbContext db, ICurrentUserServic
     IRequestHandler<UpdateClassCommand, Result<ClassDto>>,
     IRequestHandler<CancelClassCommand, Result>,
     IRequestHandler<ReactivateClassCommand, Result>,
+    IRequestHandler<GetClassTeachersQuery, Result<IReadOnlyList<Guid>>>,
+    IRequestHandler<SetClassTeachersCommand, Result<IReadOnlyList<Guid>>>,
     IRequestHandler<HardDeleteClassCommand, Result>,
     IRequestHandler<EnrollStudentCommand, Result>,
     IRequestHandler<RemoveStudentFromClassCommand, Result>,
@@ -28,6 +30,51 @@ public sealed class ClassesHandlers(IApplicationDbContext db, ICurrentUserServic
         c.Cancel();
         await db.SaveChangesAsync(cancellationToken);
         return Result.Ok("Cancelled");
+    }
+
+    public async Task<Result<IReadOnlyList<Guid>>> Handle(GetClassTeachersQuery request, CancellationToken ct)
+    {
+        if (!await db.Classes.AnyAsync(c => c.Id == request.ClassId, ct))
+            return Result<IReadOnlyList<Guid>>.Fail("NOT_FOUND", "Class not found.");
+        return Result<IReadOnlyList<Guid>>.Ok(await db.TeacherUserIdsAsync(request.ClassId, ct));
+    }
+
+    public async Task<Result<IReadOnlyList<Guid>>> Handle(SetClassTeachersCommand request, CancellationToken ct)
+    {
+        var cls = await db.Classes.FirstOrDefaultAsync(c => c.Id == request.ClassId, ct);
+        if (cls is null) return Result<IReadOnlyList<Guid>>.Fail("NOT_FOUND", "Class not found.");
+
+        // Distinct, order preserved — index 0 is the primary teacher.
+        var ids = request.TeacherUserIds.Distinct().ToList();
+        if (ids.Count > 0)
+        {
+            var found = await db.Users.Where(u => ids.Contains(u.Id)).Select(u => u.Id).ToListAsync(ct);
+            if (found.Count != ids.Count)
+                return Result<IReadOnlyList<Guid>>.Fail("VALIDATION", "One or more selected teachers don't exist.");
+        }
+
+        // Primary = the first id (or none when the list is empty).
+        if (ids.Count == 0)
+        {
+            cls.UnassignTeacher();
+        }
+        else
+        {
+            var primary = await db.Users.FirstAsync(u => u.Id == ids[0], ct);
+            cls.AssignTeacher(primary);
+        }
+
+        // Re-sync co-teachers (everyone after the primary) against class_teachers.
+        var co = ids.Skip(1).ToList();
+        var current = await db.ClassTeachers.Where(t => t.ClassId == cls.Id).ToListAsync(ct);
+        foreach (var row in current.Where(r => !co.Contains(r.UserId)))
+            db.ClassTeachers.Remove(row);
+        var existing = current.Select(t => t.UserId).ToHashSet();
+        foreach (var uid in co.Where(id => !existing.Contains(id)))
+            await db.ClassTeachers.AddAsync(new ClassTeacher(cls.Id, uid), ct);
+
+        await db.SaveChangesAsync(ct);
+        return Result<IReadOnlyList<Guid>>.Ok(await db.TeacherUserIdsAsync(cls.Id, ct));
     }
 
     public async Task<Result> Handle(HardDeleteClassCommand request, CancellationToken cancellationToken)
@@ -124,8 +171,10 @@ public sealed class ClassesHandlers(IApplicationDbContext db, ICurrentUserServic
     public async Task<Result<IReadOnlyCollection<ClassDto>>> Handle(GetAssignedClassesQuery request,
         CancellationToken cancellationToken)
     {
+        // Classes the teacher owns (primary) OR co-teaches (class_teachers).
         return Result<IReadOnlyCollection<ClassDto>>.Ok(await db.Classes
-            .Where(x => x.TeacherUserId == request.TeacherUserId)
+            .Where(x => x.TeacherUserId == request.TeacherUserId
+                     || db.ClassTeachers.Any(t => t.ClassId == x.Id && t.UserId == request.TeacherUserId))
             .Select(c => new ClassDto(c.Id, c.Title, c.MaxStudents, c.Modality, c.Status, c.TeacherUserId,
                 c.Enrollments.Count(e => e.Status == EnrollmentStatus.Active), c.MonthlyPrice))
             .ToListAsync(cancellationToken));

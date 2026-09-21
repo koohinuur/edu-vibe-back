@@ -860,6 +860,19 @@ public sealed class MockTestRegistrationConfiguration : IEntityTypeConfiguration
     }
 }
 
+public sealed class ClassTeacherConfiguration : IEntityTypeConfiguration<ClassTeacher>
+{
+    public void Configure(EntityTypeBuilder<ClassTeacher> b)
+    {
+        b.ToTable("class_teachers");
+        b.HasKey(x => x.Id);
+        b.HasOne<Class>().WithMany().HasForeignKey(x => x.ClassId).OnDelete(DeleteBehavior.Cascade);
+        // One row per (class, teacher); a teacher can't be added to a class twice.
+        b.HasIndex(x => new { x.ClassId, x.UserId }).IsUnique();
+        b.HasIndex(x => x.UserId);
+    }
+}
+
 public sealed class TelegramSubscriberConfiguration : IEntityTypeConfiguration<TelegramSubscriber>
 {
     public void Configure(EntityTypeBuilder<TelegramSubscriber> b)

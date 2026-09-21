@@ -70,6 +70,14 @@ public sealed class Class : BaseEntity
         Touch();
     }
 
+    /// <summary>Clears the primary teacher (used when the class's teacher list is emptied).</summary>
+    public void UnassignTeacher()
+    {
+        TeacherUserId = null;
+        Teacher = null;
+        Touch();
+    }
+
     public void UpdateDetails(string title, int maxStudents, Modality modality)
     {
         if (string.IsNullOrWhiteSpace(title)) throw new DomainException("Class title is required.");

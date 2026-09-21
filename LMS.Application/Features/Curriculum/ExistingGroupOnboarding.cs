@@ -42,7 +42,7 @@ public sealed class ExistingGroupOnboardingHandlers(IApplicationDbContext db, IC
             .Where(c => c.Id == request.ClassId)
             .Select(c => new { c.CurriculumTemplateId, c.TeacherUserId }).FirstOrDefaultAsync(ct);
         if (cls is null) return Result<SuggestPositionDto>.Fail("NOT_FOUND", "Class not found.");
-        if (!CurriculumAuthorization.CanManageClass(currentUser, cls.TeacherUserId))
+        if (!await CurriculumAuthorization.CanManageClassAsync(db, currentUser, request.ClassId, ct))
             return Result<SuggestPositionDto>.Fail("FORBIDDEN", "Only the class teacher or an admin can manage this class's curriculum.");
         if (cls.CurriculumTemplateId is not { } tid)
             return Result<SuggestPositionDto>.Fail("VALIDATION", "This class has no curriculum assigned yet.");
@@ -84,7 +84,7 @@ public sealed class ExistingGroupOnboardingHandlers(IApplicationDbContext db, IC
             .Where(c => c.Id == request.ClassId)
             .Select(c => new { c.CurriculumTemplateId, c.TeacherUserId }).FirstOrDefaultAsync(ct);
         if (cls is null) return Result<SetPositionResultDto>.Fail("NOT_FOUND", "Class not found.");
-        if (!CurriculumAuthorization.CanManageClass(currentUser, cls.TeacherUserId))
+        if (!await CurriculumAuthorization.CanManageClassAsync(db, currentUser, request.ClassId, ct))
             return Result<SetPositionResultDto>.Fail("FORBIDDEN", "Only the class teacher or an admin can manage this class's curriculum.");
         if (cls.CurriculumTemplateId is not { } tid)
             return Result<SetPositionResultDto>.Fail("VALIDATION", "This class has no curriculum assigned yet.");
