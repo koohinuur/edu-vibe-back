@@ -72,7 +72,7 @@ public sealed class CurriculumHandlers(IApplicationDbContext db, ICurrentUserSer
     {
         var cls = await db.Classes.FirstOrDefaultAsync(c => c.Id == request.ClassId, ct);
         if (cls is null) return Result<ClassCurriculumDto>.Fail("NOT_FOUND", "Class not found.");
-        if (!CurriculumAuthorization.CanManageClass(currentUser, cls))
+        if (!await CurriculumAuthorization.CanManageClassAsync(db, currentUser, cls.Id, ct))
             return Result<ClassCurriculumDto>.Fail("FORBIDDEN", "Only the class teacher or an admin can manage this class's curriculum.");
 
         var template = await db.CurriculumTemplates.AsNoTracking().FirstOrDefaultAsync(t => t.Id == request.TemplateId, ct);

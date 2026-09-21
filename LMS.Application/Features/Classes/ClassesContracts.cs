@@ -26,6 +26,16 @@ public sealed record UpdateClassCommand(
 
 public sealed record CancelClassCommand(Guid ClassId) : IRequest<Result>;
 
+/// <summary>All teacher user ids of a class — primary first, then co-teachers.</summary>
+public sealed record GetClassTeachersQuery(Guid ClassId) : IRequest<Result<IReadOnlyList<Guid>>>;
+
+/// <summary>
+/// Replace the class's full teacher list. The first id becomes the primary
+/// (Class.TeacherUserId); the rest are co-teachers. An empty list clears all.
+/// </summary>
+public sealed record SetClassTeachersCommand(Guid ClassId, IReadOnlyList<Guid> TeacherUserIds)
+    : IRequest<Result<IReadOnlyList<Guid>>>;
+
 /// <summary>Permanently delete a class (children cascade; payments are kept).</summary>
 public sealed record HardDeleteClassCommand(Guid ClassId) : IRequest<Result>;
 

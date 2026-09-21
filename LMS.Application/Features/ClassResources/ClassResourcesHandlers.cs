@@ -1,4 +1,5 @@
 using LMS.Application.Common.Abstractions;
+using LMS.Application.Features.Classes;
 using LMS.Application.Common.Models;
 using LMS.Application.Common.Security;
 using LMS.Domain.Entities;
@@ -37,8 +38,8 @@ public sealed class ClassResourcesHandlers(IApplicationDbContext db, ICurrentUse
         return row is null ? (false, null) : (true, row.TeacherUserId);
     }
 
-    private bool CanManage(Guid? teacherUserId) =>
-        IsAdmin() || (IsTeacher() && teacherUserId is not null && teacherUserId == currentUser.UserId);
+    private async Task<bool> CanManageAsync(Guid classId, CancellationToken ct) =>
+        IsAdmin() || (IsTeacher() && currentUser.UserId is { } uid && await db.IsClassTeacherAsync(classId, uid, ct));
 
     /// <summary>The caller's student profile id — from the JWT claim, else via UserId.</summary>
     private async Task<Guid?> ResolveStudentProfileAsync(CancellationToken ct)
@@ -51,7 +52,7 @@ public sealed class ClassResourcesHandlers(IApplicationDbContext db, ICurrentUse
 
     private async Task<bool> CanReadAsync(Guid classId, Guid? teacherUserId, CancellationToken ct)
     {
-        if (CanManage(teacherUserId)) return true;
+        if (await CanManageAsync(classId, ct)) return true;
         var profileId = await ResolveStudentProfileAsync(ct);
         if (profileId is null) return false;
         return await db.Enrollments.AsNoTracking()
@@ -80,7 +81,7 @@ public sealed class ClassResourcesHandlers(IApplicationDbContext db, ICurrentUse
     {
         var (exists, teacherUserId) = await ClassInfoAsync(request.ClassId, ct);
         if (!exists) return Result<ClassResourceDto>.Fail("NOT_FOUND", "Class not found.");
-        if (!CanManage(teacherUserId))
+        if (!await CanManageAsync(request.ClassId, ct))
             return Result<ClassResourceDto>.Fail("FORBIDDEN", "Only the class teacher or an admin can manage class content.");
         if (currentUser.UserId is not { } uid)
             return Result<ClassResourceDto>.Fail("FORBIDDEN", "Sign in to manage class content.");
@@ -101,7 +102,7 @@ public sealed class ClassResourcesHandlers(IApplicationDbContext db, ICurrentUse
     {
         var (exists, teacherUserId) = await ClassInfoAsync(request.ClassId, ct);
         if (!exists) return Result<ClassResourceDto>.Fail("NOT_FOUND", "Class not found.");
-        if (!CanManage(teacherUserId))
+        if (!await CanManageAsync(request.ClassId, ct))
             return Result<ClassResourceDto>.Fail("FORBIDDEN", "Only the class teacher or an admin can manage class content.");
 
         var resource = await db.ClassResources
@@ -117,7 +118,7 @@ public sealed class ClassResourcesHandlers(IApplicationDbContext db, ICurrentUse
     {
         var (exists, teacherUserId) = await ClassInfoAsync(request.ClassId, ct);
         if (!exists) return Result.Fail("NOT_FOUND", "Class not found.");
-        if (!CanManage(teacherUserId))
+        if (!await CanManageAsync(request.ClassId, ct))
             return Result.Fail("FORBIDDEN", "Only the class teacher or an admin can manage class content.");
 
         var resource = await db.ClassResources

@@ -1,4 +1,5 @@
 using LMS.Application.Common.Abstractions;
+using LMS.Application.Features.Classes;
 using LMS.Application.Common.Models;
 using LMS.Application.Common.Security;
 using LMS.Domain.Enums;
@@ -102,7 +103,7 @@ public sealed class AnalyticsHandlers(IApplicationDbContext db, ICurrentUserServ
             .Select(c => new { c.Id, c.Title, c.TeacherUserId }).FirstOrDefaultAsync(ct);
         if (cls is null) return Result<ClassAnalyticsDto>.Fail("NOT_FOUND", "Class not found.");
 
-        var allowed = IsAdmin() || (IsTeacher() && cls.TeacherUserId == currentUser.UserId);
+        var allowed = IsAdmin() || (IsTeacher() && currentUser.UserId is { } auid && await db.IsClassTeacherAsync(cls.Id, auid, ct));
         if (!allowed) return Result<ClassAnalyticsDto>.Fail("FORBIDDEN", "You can't view this class's analytics.");
 
         var students = await db.Enrollments.AsNoTracking()
@@ -181,14 +182,14 @@ public sealed class AnalyticsHandlers(IApplicationDbContext db, ICurrentUserServ
         return row is null ? null : (row.Id, row.TeacherUserId);
     }
 
-    private bool CanManageClass(Guid? teacherUserId) =>
-        IsAdmin() || (IsTeacher() && teacherUserId is not null && teacherUserId == currentUser.UserId);
+    private async Task<bool> CanManageClassAsync(Guid classId, CancellationToken ct) =>
+        IsAdmin() || (IsTeacher() && currentUser.UserId is { } uid && await db.IsClassTeacherAsync(classId, uid, ct));
 
     public async Task<Result<SessionAttendanceDto>> Handle(BulkMarkAttendanceCommand request, CancellationToken ct)
     {
         var info = await ResolveSessionClassAsync(request.SessionId, ct);
         if (info is null) return Result<SessionAttendanceDto>.Fail("NOT_FOUND", "Session not found.");
-        if (!CanManageClass(info.Value.TeacherUserId))
+        if (!await CanManageClassAsync(info.Value.ClassId, ct))
             return Result<SessionAttendanceDto>.Fail("FORBIDDEN", "Only the class teacher can mark attendance.");
 
         var existing = await db.Attendance
@@ -220,7 +221,7 @@ public sealed class AnalyticsHandlers(IApplicationDbContext db, ICurrentUserServ
     {
         var info = await ResolveSessionClassAsync(request.SessionId, ct);
         if (info is null) return Result<SessionAttendanceDto>.Fail("NOT_FOUND", "Session not found.");
-        if (!CanManageClass(info.Value.TeacherUserId))
+        if (!await CanManageClassAsync(info.Value.ClassId, ct))
             return Result<SessionAttendanceDto>.Fail("FORBIDDEN", "Only the class teacher can view attendance.");
 
         return Result<SessionAttendanceDto>.Ok(await BuildSummaryAsync(request.SessionId, info.Value.ClassId, ct));

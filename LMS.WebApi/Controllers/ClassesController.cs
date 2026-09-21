@@ -199,6 +199,25 @@ public sealed class ClassesController(ISender sender) : ControllerBase
             : BadRequest(ApiResponse<object>.Fail(r.Message ?? "Failed"));
     }
 
+    /// <summary>All teacher user ids of a class — primary first, then co-teachers.</summary>
+    [HttpGet("{id:guid}/teachers")]
+    [PermissionAuthorize(Permissions.Classes.Update)]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<Guid>>>> GetTeachers(Guid id, CancellationToken ct)
+    {
+        var r = await sender.Send(new GetClassTeachersQuery(id), ct);
+        return r.ToApiResult();
+    }
+
+    /// <summary>Replace the class's teacher list — the first id is the primary, the rest co-teachers.</summary>
+    [HttpPut("{id:guid}/teachers")]
+    [PermissionAuthorize(Permissions.Classes.Update)]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<Guid>>>> SetTeachers(
+        Guid id, [FromBody] SetClassTeachersRequest body, CancellationToken ct)
+    {
+        var r = await sender.Send(new SetClassTeachersCommand(id, body.TeacherUserIds ?? new List<Guid>()), ct);
+        return r.ToApiResult();
+    }
+
     /// <summary>Permanently delete a class and everything under it (payments kept).</summary>
     [HttpDelete("{id:guid}/hard")]
     [PermissionAuthorize(Permissions.Classes.Delete)]
@@ -318,3 +337,6 @@ public sealed class ClassesController(ISender sender) : ControllerBase
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
     }
 }
+
+/// <summary>Body for PUT /api/Classes/{id}/teachers — the full teacher list (first = primary).</summary>
+public sealed record SetClassTeachersRequest(List<Guid>? TeacherUserIds);

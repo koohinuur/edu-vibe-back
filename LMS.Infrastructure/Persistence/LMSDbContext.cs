@@ -44,6 +44,7 @@ public sealed class LMSDbContext : DbContext, IApplicationDbContext
     public DbSet<Course> Courses => Set<Course>();
     public DbSet<Room> Rooms => Set<Room>();
     public DbSet<Class> Classes => Set<Class>();
+    public DbSet<ClassTeacher> ClassTeachers => Set<ClassTeacher>();
     public DbSet<ClassResource> ClassResources => Set<ClassResource>();
     public DbSet<CurriculumTemplate> CurriculumTemplates => Set<CurriculumTemplate>();
     public DbSet<CurriculumModule> CurriculumModules => Set<CurriculumModule>();
