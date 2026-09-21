@@ -26,6 +26,9 @@ public sealed record UpdateClassCommand(
 
 public sealed record CancelClassCommand(Guid ClassId) : IRequest<Result>;
 
+/// <summary>Permanently delete a class (children cascade; payments are kept).</summary>
+public sealed record HardDeleteClassCommand(Guid ClassId) : IRequest<Result>;
+
 /// <summary>Reactivate an archived (cancelled) class — flips it back to Planned.</summary>
 public sealed record ReactivateClassCommand(Guid ClassId) : IRequest<Result>;
 
