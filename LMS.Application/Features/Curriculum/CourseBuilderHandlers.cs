@@ -1,4 +1,5 @@
 using LMS.Application.Common.Abstractions;
+using LMS.Application.Features.Classes;
 using LMS.Application.Common.Models;
 using LMS.Application.Common.Security;
 using LMS.Domain.Entities;
@@ -38,7 +39,7 @@ public sealed class CourseBuilderHandlers(IApplicationDbContext db, ICurrentUser
     {
         var cls = await db.Classes.FirstOrDefaultAsync(c => c.Id == request.ClassId, ct);
         if (cls is null) return Fail("NOT_FOUND", "Class not found.");
-        if (!IsAdmin && (cls.TeacherUserId is null || cls.TeacherUserId != currentUser.UserId))
+        if (!IsAdmin && (currentUser.UserId is not { } uid || !await db.IsClassTeacherAsync(cls.Id, uid, ct)))
             return Fail("FORBIDDEN", "Only the class teacher or an admin can set up this course.");
 
         var source = await db.CurriculumTemplates.AsNoTracking()
@@ -393,7 +394,7 @@ public sealed class CourseBuilderHandlers(IApplicationDbContext db, ICurrentUser
     {
         var cls = await db.Classes.FirstOrDefaultAsync(c => c.Id == classId, ct);
         if (cls is null) return Fail("NOT_FOUND", "Class not found.");
-        if (!IsAdmin && (cls.TeacherUserId is null || cls.TeacherUserId != currentUser.UserId))
+        if (!IsAdmin && (currentUser.UserId is not { } uid || !await db.IsClassTeacherAsync(cls.Id, uid, ct)))
             return Fail("FORBIDDEN", "Only the class teacher or an admin can edit this course.");
 
         var (templateId, moduleId) = await EnsureClassCourseAsync(cls, ct);

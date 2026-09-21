@@ -1,4 +1,5 @@
 using LMS.Application.Common.Abstractions;
+using LMS.Application.Features.Classes;
 using LMS.Application.Common.Models;
 using LMS.Application.Common.Security;
 using LMS.Domain.Entities;
@@ -39,8 +40,8 @@ public sealed class ConversationsHandlers(
             .Select(x => x.UserId).Distinct().ToListAsync(ct);
         foreach (var id in adminIds) ids.Add(id);
 
-        // Classes I touch — as teacher (Class.TeacherUserId) or as student (enrollment).
-        var taught = await db.Classes.Where(c => c.TeacherUserId == me).Select(c => c.Id).ToListAsync(ct);
+        // Classes I touch — as teacher (primary or co) or as student (enrollment).
+        var taught = await db.TaughtClassIds(me).ToListAsync(ct);
         var myProfileId = await db.StudentProfiles.Where(s => s.UserId == me)
             .Select(s => (Guid?)s.Id).FirstOrDefaultAsync(ct);
         var enrolled = myProfileId is { } pid
@@ -52,7 +53,9 @@ public sealed class ConversationsHandlers(
         {
             var teacherIds = await db.Classes
                 .Where(c => myClassIds.Contains(c.Id) && c.TeacherUserId != null)
-                .Select(c => c.TeacherUserId!.Value).ToListAsync(ct);
+                .Select(c => c.TeacherUserId!.Value)
+                .Union(db.ClassTeachers.Where(t => myClassIds.Contains(t.ClassId)).Select(t => t.UserId))
+                .ToListAsync(ct);
             foreach (var id in teacherIds) ids.Add(id);
 
             var studentIds = await db.Enrollments

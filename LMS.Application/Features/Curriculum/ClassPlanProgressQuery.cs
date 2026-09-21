@@ -1,4 +1,5 @@
 using LMS.Application.Common.Abstractions;
+using LMS.Application.Features.Classes;
 using LMS.Application.Common.Models;
 using LMS.Application.Common.Security;
 using LMS.Application.Features.Curriculum.Planning;
@@ -116,7 +117,7 @@ public sealed class GetClassPlanProgressHandler(IApplicationDbContext db, ICurre
         if (IsAdmin) return true;
         var uid = currentUser.UserId;
         if (uid is null) return false;
-        if (cls.TeacherUserId == uid) return true;
+        if (await db.IsClassTeacherAsync(cls.Id, uid.Value, ct)) return true;
         var profileId = await db.StudentProfiles.AsNoTracking()
             .Where(p => p.UserId == uid).Select(p => p.Id).FirstOrDefaultAsync(ct);
         if (profileId == Guid.Empty) return false;
