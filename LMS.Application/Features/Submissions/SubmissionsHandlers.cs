@@ -11,6 +11,7 @@ public sealed class SubmissionsHandlers(
     IRequestHandler<SubmitAssignmentCommand, Result<SubmissionDto>>,
     IRequestHandler<SaveSubmissionDraftCommand, Result<SubmissionDto>>,
     IRequestHandler<GradeSubmissionCommand, Result<SubmissionDto>>,
+    IRequestHandler<ReturnSubmissionCommand, Result<SubmissionDto>>,
     IRequestHandler<GetAssignmentSubmissionsQuery, Result<IReadOnlyCollection<SubmissionDto>>>,
     IRequestHandler<GetStudentSubmissionsQuery, Result<IReadOnlyCollection<SubmissionDto>>>,
     IRequestHandler<AddSubmissionFileCommand, Result<SubmissionFileDto>>,
@@ -93,6 +94,27 @@ public sealed class SubmissionsHandlers(
                 studentUserId,
                 $"✅ Your submission was graded: {scoreText}.\nOpen EduVibe to see feedback.",
                 cancellationToken);
+
+        return Result<SubmissionDto>.Ok(Map(s));
+    }
+
+    public async Task<Result<SubmissionDto>> Handle(ReturnSubmissionCommand request, CancellationToken ct)
+    {
+        var s = await db.Submissions.Include(x => x.Files)
+            .FirstOrDefaultAsync(x => x.Id == request.SubmissionId, ct);
+        if (s is null) return Result<SubmissionDto>.Fail("NOT_FOUND", "Submission not found.");
+        s.ReturnForRedo(request.Feedback);
+        db.SubmissionAudits.Add(new SubmissionAudit(s.Id, currentUser.UserId, "returned", request.Feedback ?? ""));
+        await db.SaveChangesAsync(ct);
+
+        // Let the student know they need to revise + resubmit.
+        var studentUserId = await db.StudentProfiles
+            .Where(sp => sp.Id == s.StudentProfileId).Select(sp => sp.UserId).FirstOrDefaultAsync(ct);
+        if (studentUserId != Guid.Empty)
+            await notifications.NotifyUserAsync(
+                studentUserId,
+                "↩️ Your submission was returned for a redo. Open EduVibe to revise and resubmit.",
+                ct);
 
         return Result<SubmissionDto>.Ok(Map(s));
     }

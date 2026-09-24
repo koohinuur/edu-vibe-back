@@ -175,6 +175,16 @@ public sealed class SubmissionsController(ISender sender, ISubmissionFileStore f
         return r.ToApiResult();
     }
 
+    /// <summary>Teacher returns a submission for a redo — unlocks it so the student can resubmit.</summary>
+    [HttpPost("{submissionId:guid}/return")]
+    [PermissionAuthorize(Permissions.Submissions.Grade)]
+    public async Task<ActionResult<ApiResponse<SubmissionDto>>> Return(
+        Guid submissionId, [FromBody] ReturnRequest? body, CancellationToken ct)
+    {
+        var r = await sender.Send(new ReturnSubmissionCommand(submissionId, body?.Feedback), ct);
+        return r.ToApiResult();
+    }
+
     /// <summary>Submission audit trail — staff only (gated by the grade permission).</summary>
     [HttpGet("{submissionId:guid}/audit")]
     [PermissionAuthorize(Permissions.Submissions.Grade)]
@@ -187,6 +197,8 @@ public sealed class SubmissionsController(ISender sender, ISubmissionFileStore f
 }
 
 public sealed record SetLockRequest(bool Locked);
+
+public sealed record ReturnRequest(string? Feedback);
 
 public sealed record GradeRequest(decimal Score, decimal? MaxScore, string? Feedback);
 

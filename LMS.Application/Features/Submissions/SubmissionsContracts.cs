@@ -96,5 +96,8 @@ public sealed record FinalizeSubmissionCommand(Guid SubmissionId) : IRequest<Res
 /// <summary>Teacher locks / unlocks a submission (staff-only).</summary>
 public sealed record SetSubmissionLockCommand(Guid SubmissionId, bool Locked) : IRequest<Result<SubmissionDto>>;
 
+/// <summary>Teacher returns a submission for the student to redo + resubmit (unlocks it).</summary>
+public sealed record ReturnSubmissionCommand(Guid SubmissionId, string? Feedback) : IRequest<Result<SubmissionDto>>;
+
 public sealed record GetSubmissionAuditQuery(Guid SubmissionId)
     : IRequest<Result<IReadOnlyCollection<SubmissionAuditDto>>>;
