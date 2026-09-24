@@ -78,6 +78,21 @@ public sealed class Submission : BaseEntity
         Touch();
     }
 
+    /// <summary>
+    /// Sends the work back for a redo: unlocks it so the student can resubmit,
+    /// clears the previous grade (it's a fresh attempt), and keeps the teacher's
+    /// note as feedback. The student's next Submit() flips it back to Submitted.
+    /// </summary>
+    public void ReturnForRedo(string? feedback = null)
+    {
+        Status = SubmissionStatus.Returned;
+        IsLocked = false;
+        Score = null;
+        MaxScore = null;
+        if (!string.IsNullOrWhiteSpace(feedback)) Feedback = feedback.Trim();
+        Touch();
+    }
+
     /// <summary>Marks the submission late (kept distinct from a re-submit).</summary>
     public void MarkLate()
     {
