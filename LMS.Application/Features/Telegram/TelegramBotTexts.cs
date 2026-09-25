@@ -73,9 +73,9 @@ public static class TelegramBotTexts
 
     public static string SharePhonePrompt(string lang) => lang switch
     {
-        "uz" => "Natijalaringizni ko'rish uchun pastdagi «📊 Natijalarim» tugmasini bosib, telefon raqamingizni ulashing.",
-        "ru" => "Чтобы увидеть результаты, нажмите «📊 Мои результаты» ниже и поделитесь номером телефона.",
-        _ => "To see your results, tap “📊 My results” below and share your phone number.",
+        "uz" => "Natijalaringizni ko'rish uchun pastdagi «📊 Natijalarim» tugmasini bosib telefon raqamingizni ulashing — yoki raqamingizni shu yerga yozib yuboring.",
+        "ru" => "Чтобы увидеть результаты, нажмите «📊 Мои результаты» ниже и поделитесь номером телефона — или просто напишите его сюда.",
+        _ => "To see your results, tap “📊 My results” below and share your phone number — or just type it here.",
     };
 
     public static string AskPrompt(string lang) => lang switch

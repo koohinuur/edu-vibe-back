@@ -94,10 +94,28 @@ public sealed class TelegramBotHandlers(IApplicationDbContext db, ITelegramNotif
             return new TelegramReply(TelegramBotTexts.QuestionSaved(lang), true, lang);
         }
 
-        // 6) Anything else → a gentle menu nudge.
+        // 6) A typed phone number → look up results. Fallback for when the
+        //    "share contact" button isn't tappable (e.g. Telegram Desktop) or
+        //    the user simply types their number.
+        var typedDigits = TelegramSubscriber.DigitsOnly(text);
+        if (LooksLikePhone(text, typedDigits))
+        {
+            sub.SetPhone(typedDigits);
+            sub.SetState(TelegramChatState.Idle);
+            await db.SaveChangesAsync(ct);
+            return new TelegramReply(await BuildResultsAsync(typedDigits, lang, ct), true, lang);
+        }
+
+        // 7) Anything else → a gentle menu nudge.
         await db.SaveChangesAsync(ct);
         return new TelegramReply(TelegramBotTexts.MenuHint(lang), true, lang);
     }
+
+    /// <summary>True when the text is basically just a phone number (9–15 digits,
+    /// only digits + the usual + - space ( ) separators).</summary>
+    private static bool LooksLikePhone(string text, string digits) =>
+        digits.Length is >= 9 and <= 15 &&
+        text.All(c => char.IsDigit(c) || c is '+' or '-' or ' ' or '(' or ')');
 
     public async Task<int> Handle(BroadcastTelegramCommand request, CancellationToken ct)
     {
