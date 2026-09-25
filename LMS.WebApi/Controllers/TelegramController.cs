@@ -130,15 +130,19 @@ public sealed class TelegramController(ISender sender) : ControllerBase
             return Unauthorized();
 
         var msg = update.Message;
-        var chatId = msg?.Chat?.Id;
+        var cb = update.CallbackQuery;
+        // Private-chat id — from the message, or the callback's originating message.
+        var chatId = msg?.Chat?.Id ?? cb?.Message?.Chat?.Id;
         if (chatId is null) return Ok();
 
+        var from = msg?.From ?? cb?.From;
         var input = new TelegramUpdateInput(
             ChatId: chatId.Value,
-            Text: msg!.Text,
-            ContactPhone: msg.Contact?.PhoneNumber,
-            LanguageCode: msg.From?.LanguageCode,
-            FirstName: msg.From?.FirstName);
+            Text: msg?.Text,
+            ContactPhone: msg?.Contact?.PhoneNumber,
+            LanguageCode: from?.LanguageCode,
+            FirstName: from?.FirstName,
+            CallbackData: cb?.Data);
 
         var reply = await sender.Send(new ProcessTelegramUpdateCommand(input), ct);
         if (reply is null) return Ok();
@@ -172,7 +176,21 @@ public sealed class TelegramController(ISender sender) : ControllerBase
             ["disable_web_page_preview"] = true,
         };
 
-        if (reply.ShowMenu)
+        // Inline buttons (the per-date result picker) take precedence — a message
+        // can carry only one markup. Otherwise show the persistent reply keyboard.
+        if (reply.Buttons is { Count: > 0 } buttons)
+        {
+            payload["reply_markup"] = new Dictionary<string, object?>
+            {
+                ["inline_keyboard"] = buttons
+                    .Select(b => new List<Dictionary<string, object?>>
+                    {
+                        new() { ["text"] = b.Label, ["callback_data"] = b.Data },
+                    })
+                    .ToList(),
+            };
+        }
+        else if (reply.ShowMenu)
         {
             payload["reply_markup"] = new Dictionary<string, object?>
             {
@@ -190,13 +208,20 @@ public sealed class TelegramController(ISender sender) : ControllerBase
 }
 
 // ---- Minimal Bot API update shape — only the fields the bot needs. ---------
-public sealed record TgUpdate([property: JsonPropertyName("message")] TgMessage? Message);
+public sealed record TgUpdate(
+    [property: JsonPropertyName("message")] TgMessage? Message,
+    [property: JsonPropertyName("callback_query")] TgCallbackQuery? CallbackQuery);
 
 public sealed record TgMessage(
     [property: JsonPropertyName("text")] string? Text,
     [property: JsonPropertyName("chat")] TgChat? Chat,
     [property: JsonPropertyName("from")] TgFrom? From,
     [property: JsonPropertyName("contact")] TgContact? Contact);
+
+public sealed record TgCallbackQuery(
+    [property: JsonPropertyName("data")] string? Data,
+    [property: JsonPropertyName("from")] TgFrom? From,
+    [property: JsonPropertyName("message")] TgMessage? Message);
 
 public sealed record TgChat([property: JsonPropertyName("id")] long Id);
 
