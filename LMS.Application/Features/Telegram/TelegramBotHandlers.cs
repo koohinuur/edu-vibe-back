@@ -40,39 +40,53 @@ public sealed class TelegramBotHandlers(IApplicationDbContext db, ITelegramNotif
 
         var lang = sub.LanguageCode;
 
-        // 1) Shared a contact → remember the phone + show their mock results.
+        // 0) A "result date" inline button was tapped → show that test's result + feedback.
+        if (!string.IsNullOrWhiteSpace(u.CallbackData))
+        {
+            await db.SaveChangesAsync(ct);
+            if (u.CallbackData!.StartsWith("res:", StringComparison.Ordinal)
+                && Guid.TryParse(u.CallbackData.AsSpan(4), out var pickedSlot))
+                return new TelegramReply(
+                    await BuildOneResultAsync(pickedSlot, TelegramSubscriber.DigitsOnly(sub.Phone), lang, ct), true, lang);
+            return new TelegramReply(TelegramBotTexts.MenuHint(lang), true, lang);
+        }
+
+        // 1) Shared a contact → remember the phone + show the results picker.
         if (!string.IsNullOrWhiteSpace(u.ContactPhone))
         {
             sub.SetPhone(u.ContactPhone!);
             sub.SetState(TelegramChatState.Idle);
             await db.SaveChangesAsync(ct);
-            var results = await BuildResultsAsync(TelegramSubscriber.DigitsOnly(u.ContactPhone), lang, ct);
-            return new TelegramReply(results, true, lang);
+            return await ResultsReplyAsync(TelegramSubscriber.DigitsOnly(u.ContactPhone), lang, ct);
         }
 
         var text = u.Text?.Trim() ?? "";
+        var cmd = text.StartsWith('/') ? text.Split(' ')[0].Split('@')[0].ToLowerInvariant() : "";
 
-        // 2) /start
-        if (text == "/start" || text.StartsWith("/start ", StringComparison.Ordinal))
+        // 2) /start or /help → welcome + menu.
+        if (cmd is "/start" or "/help")
         {
             sub.SetState(TelegramChatState.Idle);
             await db.SaveChangesAsync(ct);
             return new TelegramReply(TelegramBotTexts.Welcome(lang), true, lang);
         }
 
-        // 3) "Ask a question" button
-        if (TelegramBotTexts.IsAskButton(text))
+        // 3) Ask a question — the button or /ask (contact an admin).
+        if (cmd == "/ask" || TelegramBotTexts.IsAskButton(text))
         {
             sub.SetState(TelegramChatState.AwaitingQuestion);
             await db.SaveChangesAsync(ct);
             return new TelegramReply(TelegramBotTexts.AskPrompt(lang), true, lang);
         }
 
-        // 4) "My results" typed instead of tapped as a contact button
-        if (TelegramBotTexts.IsResultsButton(text))
+        // 4) Check results — the button or /results.
+        if (cmd == "/results" || TelegramBotTexts.IsResultsButton(text))
         {
             sub.SetState(TelegramChatState.Idle);
             await db.SaveChangesAsync(ct);
+            // We already know their phone → jump straight to the date picker.
+            if (!string.IsNullOrEmpty(sub.Phone))
+                return await ResultsReplyAsync(TelegramSubscriber.DigitsOnly(sub.Phone), lang, ct);
             return new TelegramReply(TelegramBotTexts.SharePhonePrompt(lang), true, lang);
         }
 
@@ -94,10 +108,26 @@ public sealed class TelegramBotHandlers(IApplicationDbContext db, ITelegramNotif
             return new TelegramReply(TelegramBotTexts.QuestionSaved(lang), true, lang);
         }
 
-        // 6) Anything else → a gentle menu nudge.
+        // 6) A typed phone number → results picker (fallback for Telegram Desktop,
+        //    where the request_contact button isn't tappable).
+        var typedDigits = TelegramSubscriber.DigitsOnly(text);
+        if (LooksLikePhone(text, typedDigits))
+        {
+            sub.SetPhone(typedDigits);
+            sub.SetState(TelegramChatState.Idle);
+            await db.SaveChangesAsync(ct);
+            return await ResultsReplyAsync(typedDigits, lang, ct);
+        }
+
+        // 7) Anything else → a gentle menu nudge.
         await db.SaveChangesAsync(ct);
         return new TelegramReply(TelegramBotTexts.MenuHint(lang), true, lang);
     }
+
+    /// <summary>True when the text is basically just a phone number.</summary>
+    private static bool LooksLikePhone(string text, string digits) =>
+        digits.Length is >= 9 and <= 15 &&
+        text.All(c => char.IsDigit(c) || c is '+' or '-' or ' ' or '(' or ')');
 
     public async Task<int> Handle(BroadcastTelegramCommand request, CancellationToken ct)
     {
@@ -122,43 +152,77 @@ public sealed class TelegramBotHandlers(IApplicationDbContext db, ITelegramNotif
     }
 
     /// <summary>
-    /// Every mock registration whose stored phone contains the shared number's
-    /// last 9 digits (Uzbek national length), formatted with scores or a pending
-    /// marker. HTML — the webhook renders it with parse_mode=HTML.
+    /// Reply for a phone lookup: no results → a message; one → that result +
+    /// feedback; several → a date picker (one inline button per mock test).
     /// </summary>
-    private async Task<string> BuildResultsAsync(string phoneDigits, string lang, CancellationToken ct)
+    private async Task<TelegramReply> ResultsReplyAsync(string phoneDigits, string lang, CancellationToken ct)
     {
-        if (phoneDigits.Length < 7) return TelegramBotTexts.NoResults(lang);
+        var matched = await MatchRegistrationsAsync(phoneDigits, ct);
+        if (matched.Count == 0)
+            return new TelegramReply(TelegramBotTexts.NoResults(lang), true, lang);
+        if (matched.Count == 1)
+            return new TelegramReply(FormatResult(matched[0], lang), true, lang);
+
+        var buttons = matched
+            .Select(m => new TelegramInlineButton($"📝 {m.Title} — {m.When:yyyy-MM-dd}", $"res:{m.SlotId}"))
+            .ToList();
+        return new TelegramReply(TelegramBotTexts.PickTest(lang), false, lang, buttons);
+    }
+
+    /// <summary>The single result for a picked mock test (by slot + this phone).</summary>
+    private async Task<string> BuildOneResultAsync(Guid slotId, string phoneDigits, string lang, CancellationToken ct)
+    {
+        var matched = await MatchRegistrationsAsync(phoneDigits, ct);
+        var one = matched.FirstOrDefault(m => m.SlotId == slotId);
+        return one is null ? TelegramBotTexts.NoResults(lang) : FormatResult(one, lang);
+    }
+
+    /// <summary>Registrations whose phone contains the number's last 9 digits, joined with slot title/date.</summary>
+    private async Task<List<MatchedReg>> MatchRegistrationsAsync(string phoneDigits, CancellationToken ct)
+    {
+        if (phoneDigits.Length < 7) return new List<MatchedReg>();
         var tail = phoneDigits.Length >= 9 ? phoneDigits[^9..] : phoneDigits;
 
         var regs = await db.MockTestRegistrations.AsNoTracking()
             .Where(r => r.Phone != null && r.Phone.Contains(tail))
             .OrderByDescending(r => r.CreatedAt)
             .ToListAsync(ct);
-        if (regs.Count == 0) return TelegramBotTexts.NoResults(lang);
+        if (regs.Count == 0) return new List<MatchedReg>();
 
         var slotIds = regs.Select(r => r.SlotId).Distinct().ToList();
         var slots = await db.MockTestSlots.AsNoTracking()
             .Where(s => slotIds.Contains(s.Id))
             .ToDictionaryAsync(s => s.Id, s => new { s.Title, s.StartsAt }, ct);
 
+        return regs.Select(r =>
+        {
+            slots.TryGetValue(r.SlotId, out var s);
+            return new MatchedReg(r.SlotId, s?.Title ?? "Mock test", s?.StartsAt ?? r.CreatedAt, r);
+        }).ToList();
+    }
+
+    /// <summary>One test's result block: title, date, section bands (or pending), and feedback.</summary>
+    private static string FormatResult(MatchedReg m, string lang)
+    {
+        var r = m.Reg;
         var sb = new StringBuilder();
         sb.AppendLine(TelegramBotTexts.ResultsHeader(lang));
-        foreach (var r in regs)
+        sb.AppendLine();
+        sb.AppendLine($"📝 <b>{Escape(m.Title)}</b> — {m.When:yyyy-MM-dd}");
+        if (r.Overall is not null)
+            sb.AppendLine(
+                $"L {Fmt(r.Listening)} · R {Fmt(r.Reading)} · W {Fmt(r.Writing)} · S {Fmt(r.Speaking)} → <b>Band {Fmt(r.Overall)}</b>");
+        else
+            sb.AppendLine($"⏳ {TelegramBotTexts.Pending(lang)}");
+        if (!string.IsNullOrWhiteSpace(r.ResultNotes))
         {
-            slots.TryGetValue(r.SlotId, out var slot);
-            var title = slot?.Title ?? "Mock test";
-            var when = slot is not null ? slot.StartsAt.ToString("yyyy-MM-dd") : "";
             sb.AppendLine();
-            sb.AppendLine($"📝 <b>{Escape(title)}</b>{(string.IsNullOrEmpty(when) ? "" : $" — {when}")}");
-            if (r.Overall is not null)
-                sb.AppendLine(
-                    $"L {Fmt(r.Listening)} · R {Fmt(r.Reading)} · W {Fmt(r.Writing)} · S {Fmt(r.Speaking)} → <b>Band {Fmt(r.Overall)}</b>");
-            else
-                sb.AppendLine($"⏳ {TelegramBotTexts.Pending(lang)}");
+            sb.AppendLine($"💬 <b>{TelegramBotTexts.FeedbackLabel(lang)}:</b> {Escape(r.ResultNotes!)}");
         }
         return sb.ToString().TrimEnd();
     }
+
+    private sealed record MatchedReg(Guid SlotId, string Title, DateTime When, MockTestRegistration Reg);
 
     private static string Fmt(decimal? d) =>
         d?.ToString("0.#", CultureInfo.InvariantCulture) ?? "—";

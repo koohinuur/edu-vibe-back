@@ -61,7 +61,7 @@ internal sealed class TelegramWebhookRegistrationHostedService : BackgroundServi
             {
                 url,
                 secret_token = secret,
-                allowed_updates = new[] { "message" },
+                allowed_updates = new[] { "message", "callback_query" },
                 drop_pending_updates = true,
             };
 
