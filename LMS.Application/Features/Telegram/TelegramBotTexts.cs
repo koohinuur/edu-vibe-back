@@ -17,16 +17,16 @@ public static class TelegramBotTexts
     // ---- Reply-keyboard button labels -------------------------------------
     public static string ResultsButton(string lang) => lang switch
     {
-        "uz" => "📊 Natijalarim",
-        "ru" => "📊 Мои результаты",
-        _ => "📊 My results",
+        "uz" => "📊 Natijalarni tekshirish",
+        "ru" => "📊 Проверить результаты",
+        _ => "📊 Check results",
     };
 
     public static string AskButton(string lang) => lang switch
     {
-        "uz" => "❓ Savol berish",
-        "ru" => "❓ Задать вопрос",
-        _ => "❓ Ask a question",
+        "uz" => "❓ Admin bilan bog'lanish",
+        "ru" => "❓ Связаться с админом",
+        _ => "❓ Contact admin",
     };
 
     /// <summary>Does this text match the "results" button in any locale?</summary>
@@ -118,6 +118,29 @@ public static class TelegramBotTexts
         "uz" => "Pastdagi tugmalardan foydalaning: natijalaringizni ko'ring yoki savol bering 👇",
         "ru" => "Используйте кнопки ниже: посмотрите результаты или задайте вопрос 👇",
         _ => "Use the buttons below: see your results or ask a question 👇",
+    };
+
+    public static string PickTest(string lang) => lang switch
+    {
+        "uz" => "Qaysi mock test natijasini ko'rmoqchisiz? Sanani tanlang 👇",
+        "ru" => "Результаты какого пробного теста показать? Выберите дату 👇",
+        _ => "Which mock test's result? Pick a date 👇",
+    };
+
+    public static string FeedbackLabel(string lang) => lang switch
+    {
+        "uz" => "Izoh",
+        "ru" => "Отзыв",
+        _ => "Feedback",
+    };
+
+    // ---- Bot command menu (setMyCommands) --------------------------------
+    /// <summary>The "/" command list + Menu-button entries for a locale.</summary>
+    public static (string Command, string Description)[] Commands(string lang) => lang switch
+    {
+        "uz" => new[] { ("start", "Boshlash"), ("results", "Natijalarni tekshirish"), ("ask", "Admin bilan bog'lanish"), ("help", "Yordam") },
+        "ru" => new[] { ("start", "Начать"), ("results", "Проверить результаты"), ("ask", "Связаться с админом"), ("help", "Помощь") },
+        _ => new[] { ("start", "Start"), ("results", "Check results"), ("ask", "Contact admin"), ("help", "Help") },
     };
 
     // ---- Broadcast templates (plain text — the DM queue sends no parse_mode) --
