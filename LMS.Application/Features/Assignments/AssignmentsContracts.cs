@@ -11,6 +11,7 @@ public sealed record AssignmentDto(
     AssignmentStatus Status,
     Guid CreatedByTeacherId,
     DateTime? DueDate,
+    DateTime CreatedAt,
     string? Description = null);
 
 public sealed record CreateAssignmentCommand(
