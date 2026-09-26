@@ -21,7 +21,8 @@ public sealed class ClassesHandlers(IApplicationDbContext db, ICurrentUserServic
     IRequestHandler<HardDeleteClassCommand, Result>,
     IRequestHandler<EnrollStudentCommand, Result>,
     IRequestHandler<RemoveStudentFromClassCommand, Result>,
-    IRequestHandler<GetClassStudentsQuery, Result<IReadOnlyCollection<Guid>>>
+    IRequestHandler<GetClassStudentsQuery, Result<IReadOnlyCollection<Guid>>>,
+    IRequestHandler<GetGroupTypesQuery, Result<IReadOnlyCollection<string>>>
 {
     public async Task<Result> Handle(CancelClassCommand request, CancellationToken cancellationToken)
     {
@@ -100,6 +101,7 @@ public sealed class ClassesHandlers(IApplicationDbContext db, ICurrentUserServic
     public async Task<Result<ClassDto>> Handle(CreateClassCommand request, CancellationToken cancellationToken)
     {
         var c = new Class(request.Title, request.MaxStudents, request.Modality);
+        c.SetGroupType(request.GroupType);
         if (request.TeacherUserId.HasValue)
         {
             var t = await db.Users.FirstOrDefaultAsync(x => x.Id == request.TeacherUserId.Value, cancellationToken);
@@ -176,7 +178,7 @@ public sealed class ClassesHandlers(IApplicationDbContext db, ICurrentUserServic
             .Where(x => x.TeacherUserId == request.TeacherUserId
                      || db.ClassTeachers.Any(t => t.ClassId == x.Id && t.UserId == request.TeacherUserId))
             .Select(c => new ClassDto(c.Id, c.Title, c.MaxStudents, c.Modality, c.Status, c.TeacherUserId,
-                c.Enrollments.Count(e => e.Status == EnrollmentStatus.Active), c.MonthlyPrice))
+                c.Enrollments.Count(e => e.Status == EnrollmentStatus.Active), c.MonthlyPrice, c.GroupType))
             .ToListAsync(cancellationToken));
     }
 
@@ -278,7 +280,7 @@ public sealed class ClassesHandlers(IApplicationDbContext db, ICurrentUserServic
             .Skip(page.Skip)
             .Take(page.NormalizedPageSize)
             .Select(c => new ClassDto(c.Id, c.Title, c.MaxStudents, c.Modality, c.Status, c.TeacherUserId,
-                c.Enrollments.Count(e => e.Status == EnrollmentStatus.Active), c.MonthlyPrice))
+                c.Enrollments.Count(e => e.Status == EnrollmentStatus.Active), c.MonthlyPrice, c.GroupType))
             .ToListAsync(cancellationToken);
 
         return Result<PagedResult<ClassDto>>.Ok(PagedResult<ClassDto>.From(items, total, page));
@@ -307,6 +309,7 @@ public sealed class ClassesHandlers(IApplicationDbContext db, ICurrentUserServic
         var c = await db.Classes.FirstOrDefaultAsync(x => x.Id == request.ClassId, cancellationToken);
         if (c is null) return Result<ClassDto>.Fail("NOT_FOUND", "Class not found.");
         c.UpdateDetails(request.Title, request.MaxStudents, request.Modality);
+        c.SetGroupType(request.GroupType);
         if (request.TeacherUserId.HasValue)
         {
             var t = await db.Users.FirstOrDefaultAsync(x => x.Id == request.TeacherUserId.Value, cancellationToken);
@@ -318,6 +321,25 @@ public sealed class ClassesHandlers(IApplicationDbContext db, ICurrentUserServic
         return Result<ClassDto>.Ok(Map(c));
     }
 
+    /// <summary>Built-in group types + any custom ones already saved on classes.</summary>
+    private static readonly string[] DefaultGroupTypes = { "IELTS", "Pre-IELTS", "General English" };
+
+    public async Task<Result<IReadOnlyCollection<string>>> Handle(
+        GetGroupTypesQuery request, CancellationToken cancellationToken)
+    {
+        var used = await db.Classes.AsNoTracking()
+            .Where(c => c.GroupType != null && c.GroupType != "")
+            .Select(c => c.GroupType!)
+            .Distinct()
+            .ToListAsync(cancellationToken);
+
+        // Defaults first (stable order), then any custom types not already covered.
+        var ordered = DefaultGroupTypes
+            .Concat(used.Where(u => !DefaultGroupTypes.Contains(u, StringComparer.OrdinalIgnoreCase)))
+            .ToList();
+        return Result<IReadOnlyCollection<string>>.Ok(ordered);
+    }
+
     private static ClassDto Map(Class c)
     {
         // For single-entity reads we use the in-memory Enrollments count —
@@ -325,6 +347,6 @@ public sealed class ClassesHandlers(IApplicationDbContext db, ICurrentUserServic
         // round-trip. Returns 0 if Include(Enrollments) wasn't applied,
         // which is the safe default for callers that don't need the count.
         var active = c.Enrollments?.Count(e => e.Status == EnrollmentStatus.Active) ?? 0;
-        return new ClassDto(c.Id, c.Title, c.MaxStudents, c.Modality, c.Status, c.TeacherUserId, active, c.MonthlyPrice);
+        return new ClassDto(c.Id, c.Title, c.MaxStudents, c.Modality, c.Status, c.TeacherUserId, active, c.MonthlyPrice, c.GroupType);
     }
 }

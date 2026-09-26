@@ -151,6 +151,7 @@ public sealed class ClassConfiguration : IEntityTypeConfiguration<Class>
     public void Configure(EntityTypeBuilder<Class> b)
     {
         b.ToTable("classes");
+        b.Property(x => x.GroupType).HasMaxLength(64);
         b.HasKey(x => x.Id);
         b.Property(x => x.Title).IsRequired().HasMaxLength(256);
         b.Property(x => x.MonthlyPrice).HasPrecision(18, 2);

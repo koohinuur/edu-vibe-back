@@ -171,6 +171,16 @@ public sealed class ClassesController(ISender sender) : ControllerBase
         return r.ToApiResult();
     }
 
+    /// <summary>Group-type options for the create/edit picker — the built-in
+    /// defaults plus any custom types already saved on classes.</summary>
+    [HttpGet("group-types")]
+    [PermissionAuthorize(Permissions.Classes.Read)]
+    public async Task<ActionResult<ApiResponse<IReadOnlyCollection<string>>>> GroupTypes(CancellationToken ct)
+    {
+        var r = await sender.Send(new GetGroupTypesQuery(), ct);
+        return r.ToApiResult();
+    }
+
     [HttpPost]
     [PermissionAuthorize(Permissions.Classes.Create)]
     public async Task<ActionResult<ApiResponse<ClassDto>>> Create([FromBody] CreateClassCommand cmd,
