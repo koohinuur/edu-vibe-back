@@ -14,7 +14,8 @@ public sealed record MaterialDto(
     long FileSize,
     Guid UploadedByUserId,
     DateTime CreatedAt,
-    IReadOnlyCollection<Guid> ClassIds);
+    IReadOnlyCollection<Guid> ClassIds,
+    Guid? CurriculumTemplateId = null);
 
 /// <summary>
 /// Lists materials the caller is allowed to see. Public materials are always
@@ -72,13 +73,15 @@ public sealed record UploadMaterialCommand(
     string MimeType,
     long FileSize,
     Guid UploadedByUserId,
-    IReadOnlyCollection<Guid> ClassIds) : IRequest<Result<MaterialDto>>;
+    IReadOnlyCollection<Guid> ClassIds,
+    Guid? CurriculumTemplateId = null) : IRequest<Result<MaterialDto>>;
 
 public sealed record UpdateMaterialCommand(
     Guid MaterialId,
     string Title,
     string? Description,
     MaterialVisibility Visibility,
-    IReadOnlyCollection<Guid> ClassIds) : IRequest<Result<MaterialDto>>;
+    IReadOnlyCollection<Guid> ClassIds,
+    Guid? CurriculumTemplateId = null) : IRequest<Result<MaterialDto>>;
 
 public sealed record DeleteMaterialCommand(Guid MaterialId) : IRequest<Result<string>>;

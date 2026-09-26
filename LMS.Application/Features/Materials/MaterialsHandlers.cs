@@ -51,7 +51,7 @@ public sealed class MaterialsHandlers(IApplicationDbContext db, ICurrentUserServ
                 m.Id, m.Title, m.Description, m.Visibility,
                 m.OriginalFileName, m.MimeType, m.FileSize,
                 m.UploadedByUserId, m.CreatedAt,
-                m.ClassLinks.Select(l => l.ClassId).ToList()))
+                m.ClassLinks.Select(l => l.ClassId).ToList(), m.CurriculumTemplateId))
             .ToListAsync(ct);
 
         return Result<IReadOnlyCollection<MaterialDto>>.Ok(items);
@@ -69,7 +69,7 @@ public sealed class MaterialsHandlers(IApplicationDbContext db, ICurrentUserServ
                 m.Id, m.Title, m.Description, m.Visibility,
                 m.OriginalFileName, m.MimeType, m.FileSize,
                 m.UploadedByUserId, m.CreatedAt,
-                m.ClassLinks.Select(l => l.ClassId).ToList()))
+                m.ClassLinks.Select(l => l.ClassId).ToList(), m.CurriculumTemplateId))
             .ToListAsync(ct);
         return Result<IReadOnlyCollection<MaterialDto>>.Ok(items);
     }
@@ -84,7 +84,7 @@ public sealed class MaterialsHandlers(IApplicationDbContext db, ICurrentUserServ
                 x.Id, x.Title, x.Description, x.Visibility,
                 x.OriginalFileName, x.MimeType, x.FileSize,
                 x.UploadedByUserId, x.CreatedAt,
-                x.ClassLinks.Select(l => l.ClassId).ToList()))
+                x.ClassLinks.Select(l => l.ClassId).ToList(), x.CurriculumTemplateId))
             .FirstOrDefaultAsync(ct);
         return m is null
             ? Result<MaterialDto>.Fail("NOT_FOUND", "Material not found.")
@@ -143,6 +143,7 @@ public sealed class MaterialsHandlers(IApplicationDbContext db, ICurrentUserServ
             request.MimeType,
             request.FileSize,
             request.UploadedByUserId);
+        entity.SetCourse(request.CurriculumTemplateId);
 
         foreach (var classId in distinctClassIds)
             entity.ClassLinks.Add(new MaterialClass(entity.Id, classId));
@@ -177,6 +178,7 @@ public sealed class MaterialsHandlers(IApplicationDbContext db, ICurrentUserServ
         }
 
         entity.UpdateDetails(request.Title, request.Description, request.Visibility);
+        entity.SetCourse(request.CurriculumTemplateId);
 
         // Replace the class set wholesale — keeps the call deterministic and
         // matches how the admin UI sends a full re-selection on save.
@@ -286,5 +288,5 @@ public sealed class MaterialsHandlers(IApplicationDbContext db, ICurrentUserServ
         m.Id, m.Title, m.Description, m.Visibility,
         m.OriginalFileName, m.MimeType, m.FileSize,
         m.UploadedByUserId, m.CreatedAt,
-        m.ClassLinks.Select(l => l.ClassId).ToList());
+        m.ClassLinks.Select(l => l.ClassId).ToList(), m.CurriculumTemplateId);
 }

@@ -720,8 +720,26 @@ public sealed class MaterialConfiguration : IEntityTypeConfiguration<Material>
         b.HasIndex(x => x.CreatedAt).HasDatabaseName("ix_materials_created_at");
         b.HasIndex(x => x.UploadedByUserId).HasDatabaseName("ix_materials_uploaded_by");
         b.HasIndex(x => x.Visibility).HasDatabaseName("ix_materials_visibility");
+        // Course-scoped materials (spec #9): the per-lesson picker filters by course.
+        b.HasIndex(x => x.CurriculumTemplateId).HasDatabaseName("ix_materials_curriculum_template");
         b.HasOne(x => x.UploadedByUser).WithMany().HasForeignKey(x => x.UploadedByUserId)
             .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+public sealed class CurriculumLessonMaterialConfiguration : IEntityTypeConfiguration<CurriculumLessonMaterial>
+{
+    public void Configure(EntityTypeBuilder<CurriculumLessonMaterial> b)
+    {
+        b.ToTable("curriculum_lesson_materials");
+        b.HasKey(x => x.Id);
+        // One row per (lesson, material, section); re-attaching is idempotent.
+        b.HasIndex(x => new { x.CurriculumLessonId, x.MaterialId, x.Section }).IsUnique();
+        b.HasIndex(x => x.CurriculumLessonId).HasDatabaseName("ix_curriculum_lesson_materials_lesson");
+        b.HasOne(x => x.CurriculumLesson).WithMany()
+            .HasForeignKey(x => x.CurriculumLessonId).OnDelete(DeleteBehavior.Cascade);
+        b.HasOne(x => x.Material).WithMany()
+            .HasForeignKey(x => x.MaterialId).OnDelete(DeleteBehavior.Cascade);
     }
 }
 
