@@ -22,6 +22,7 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
     IRequestHandler<GetClassExamsQuery, Result<IReadOnlyCollection<ExamDto>>>,
     IRequestHandler<GetExamRosterQuery, Result<ExamRosterDto>>,
     IRequestHandler<EnterExamResultCommand, Result<ExamResultDto>>,
+    IRequestHandler<PublishExamResultCommand, Result<ExamResultDto>>,
     IRequestHandler<DeleteExamResultCommand, Result>,
     IRequestHandler<GetStudentExamResultsQuery, Result<IReadOnlyCollection<StudentExamResultDto>>>
 {
@@ -57,6 +58,9 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
             return Result<ExamDto>.Fail("CONFLICT", "An exam already exists for this lesson.");
 
         var exam = new Exam(cls.Id, request.CurriculumLessonId, request.Title, request.PassThresholdPercent);
+        // Exam type (spec #11) — the create UI pre-fills it from the group's
+        // GroupType (feat/group-type), so an IELTS group's exam is an IELTS exam.
+        exam.SetExamType(request.ExamType);
         foreach (var s in request.Sections)
             exam.Sections.Add(new ExamSection(exam.Id, s.Name, s.MaxScore, s.Order));
         await db.Exams.AddAsync(exam, ct);
@@ -90,6 +94,7 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
 
         exam.SetTitle(request.Title);
         exam.SetPassThreshold(request.PassThresholdPercent);
+        exam.SetExamType(request.ExamType ?? exam.ExamType);
 
         var existingById = exam.Sections.ToDictionary(s => s.Id);
         var keepIds = new HashSet<Guid>();
@@ -213,11 +218,27 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
         foreach (var s in request.Scores)
         {
             var added = new ExamSectionScore(result.Id, s.ExamSectionId, s.Score);
+            added.SetFeedback(s.Feedback); // per-section feedback (spec #12)
             await db.ExamSectionScores.AddAsync(added, ct);
             result.SectionScores.Add(added);
         }
         await db.SaveChangesAsync(ct);
         return Result<ExamResultDto>.Ok(MapResult(result), "Scores saved.");
+    }
+
+    public async Task<Result<ExamResultDto>> Handle(PublishExamResultCommand request, CancellationToken ct)
+    {
+        var (exam, code, msg) = await ResolveOwnedExamAsync(request.ExamId, ct, tracking: true);
+        if (exam is null) return Result<ExamResultDto>.Fail(code!, msg!);
+
+        var result = await db.ExamResults.Include(r => r.SectionScores)
+            .FirstOrDefaultAsync(r => r.ExamId == request.ExamId && r.StudentProfileId == request.StudentProfileId, ct);
+        if (result is null) return Result<ExamResultDto>.Fail("NOT_FOUND", "Enter the result before publishing it.");
+
+        if (request.Publish) result.Publish(DateTime.UtcNow);
+        else result.Unpublish();
+        await db.SaveChangesAsync(ct);
+        return Result<ExamResultDto>.Ok(MapResult(result), request.Publish ? "Result published." : "Result hidden.");
     }
 
     public async Task<Result> Handle(DeleteExamResultCommand request, CancellationToken ct)
@@ -257,8 +278,13 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
         // MultipleCollectionIncludeWarning (configured to throw). Kept provider-agnostic
         // (no AsSplitQuery, which lives in the Relational assembly the Application layer
         // doesn't reference).
+        // A student sees only PUBLISHED results (spec #12); an admin or the
+        // student's teacher sees every result (published or not) for review.
+        var publishedOnly = isSelf && !IsAdmin;
+
         var results = await db.ExamResults.AsNoTracking()
             .Where(r => r.StudentProfileId == request.StudentProfileId)
+            .Where(r => !publishedOnly || r.IsPublished)
             .Include(r => r.SectionScores)
             .OrderByDescending(r => r.EnteredAt)
             .ToListAsync(ct);
@@ -284,14 +310,14 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
                 var sectionById = exam.Sections.ToDictionary(s => s.Id);
                 var sections = r.SectionScores
                     .Where(ss => sectionById.ContainsKey(ss.ExamSectionId))
-                    .Select(ss => new { Sec = sectionById[ss.ExamSectionId], ss.Score })
+                    .Select(ss => new { Sec = sectionById[ss.ExamSectionId], ss.Score, ss.Feedback })
                     .OrderBy(x => x.Sec.Order)
-                    .Select(x => new StudentExamSectionDto(x.Sec.Name, x.Score, x.Sec.MaxScore))
+                    .Select(x => new StudentExamSectionDto(x.Sec.Name, x.Score, x.Sec.MaxScore, x.Feedback))
                     .ToList();
                 return new StudentExamResultDto(
                     r.ExamId, exam.Title, exam.ClassId,
                     classTitleById.TryGetValue(exam.ClassId, out var clsTitle) ? clsTitle : null,
-                    r.OverallPercent, r.Passed, exam.EffectiveThresholdPercent, r.EnteredAt, sections);
+                    r.OverallPercent, r.Passed, exam.EffectiveThresholdPercent, r.EnteredAt, sections, exam.ExamType);
             }).ToList();
 
         return Result<IReadOnlyCollection<StudentExamResultDto>>.Ok(dtos);
@@ -341,9 +367,11 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
     private static ExamDto MapExam(Exam e) => new(
         e.Id, e.ClassId, e.CurriculumLessonId, e.Title, e.PassThresholdPercent, e.EffectiveThresholdPercent,
         e.Sections.OrderBy(s => s.Order)
-            .Select(s => new ExamSectionDto(s.Id, s.Name, s.MaxScore, s.Order)).ToList());
+            .Select(s => new ExamSectionDto(s.Id, s.Name, s.MaxScore, s.Order)).ToList(),
+        e.ExamType);
 
     private static ExamResultDto MapResult(ExamResult r) => new(
         r.Id, r.ExamId, r.StudentProfileId, r.OverallPercent, r.Passed, r.EnteredAt,
-        r.SectionScores.Select(s => new ExamSectionScoreDto(s.ExamSectionId, s.Score)).ToList());
+        r.SectionScores.Select(s => new ExamSectionScoreDto(s.ExamSectionId, s.Score, s.Feedback)).ToList(),
+        r.IsPublished, r.PublishedAt);
 }
