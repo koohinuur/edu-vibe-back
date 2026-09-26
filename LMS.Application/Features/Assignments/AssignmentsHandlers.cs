@@ -79,7 +79,7 @@ public sealed class AssignmentsHandlers(
         var q = db.Assignments.Where(x => x.ClassId == request.ClassId);
         if (scope is not null) q = q.Where(x => scope.Contains(x.ClassId));
         return Result<IReadOnlyCollection<AssignmentDto>>.Ok(await q
-            .Select(a => new AssignmentDto(a.Id, a.ClassId, a.Title, a.Status, a.CreatedByTeacherId, a.DueDate, a.Description))
+            .Select(a => new AssignmentDto(a.Id, a.ClassId, a.Title, a.Status, a.CreatedByTeacherId, a.DueDate, a.CreatedAt, a.Description))
             .ToListAsync(cancellationToken));
     }
 
@@ -194,7 +194,7 @@ public sealed class AssignmentsHandlers(
                     aa.AssignmentId == a.Id && aa.StudentProfileId == request.StudentProfileId))
             .Select(a => new
             {
-                Dto = new AssignmentDto(a.Id, a.ClassId, a.Title, a.Status, a.CreatedByTeacherId, a.DueDate, a.Description),
+                Dto = new AssignmentDto(a.Id, a.ClassId, a.Title, a.Status, a.CreatedByTeacherId, a.DueDate, a.CreatedAt, a.Description),
                 LessonDate = a.ClassSessionId == null
                     ? (DateOnly?)null
                     : db.ClassSessions.Where(s => s.Id == a.ClassSessionId)
@@ -291,7 +291,7 @@ public sealed class AssignmentsHandlers(
 
         var data = await q
             .OrderByDescending(x => x.CreatedAt)
-            .Select(a => new AssignmentDto(a.Id, a.ClassId, a.Title, a.Status, a.CreatedByTeacherId, a.DueDate, a.Description))
+            .Select(a => new AssignmentDto(a.Id, a.ClassId, a.Title, a.Status, a.CreatedByTeacherId, a.DueDate, a.CreatedAt, a.Description))
             .ToListAsync(cancellationToken);
         return Result<IReadOnlyCollection<AssignmentDto>>.Ok(data);
     }
@@ -395,6 +395,6 @@ public sealed class AssignmentsHandlers(
 
     private static AssignmentDto Map(Assignment a)
     {
-        return new AssignmentDto(a.Id, a.ClassId, a.Title, a.Status, a.CreatedByTeacherId, a.DueDate, a.Description);
+        return new AssignmentDto(a.Id, a.ClassId, a.Title, a.Status, a.CreatedByTeacherId, a.DueDate, a.CreatedAt, a.Description);
     }
 }
