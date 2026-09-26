@@ -39,8 +39,10 @@ public sealed class CourseBuilderHandlers(IApplicationDbContext db, ICurrentUser
     {
         var cls = await db.Classes.FirstOrDefaultAsync(c => c.Id == request.ClassId, ct);
         if (cls is null) return Fail("NOT_FOUND", "Class not found.");
-        if (!IsAdmin && (currentUser.UserId is not { } uid || !await db.IsClassTeacherAsync(cls.Id, uid, ct)))
-            return Fail("FORBIDDEN", "Only the class teacher or an admin can set up this course.");
+        // SECURITY (spec #8): cloning a library template into a class = assigning the
+        // group's curriculum, which is an admin decision (teachers edit the result).
+        if (!IsAdmin)
+            return Fail("FORBIDDEN", "Only an admin can assign a template to this group.");
 
         var source = await db.CurriculumTemplates.AsNoTracking()
             .FirstOrDefaultAsync(t => t.Id == request.TemplateId, ct);
