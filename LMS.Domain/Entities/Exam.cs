@@ -39,6 +39,13 @@ public sealed class Exam : BaseEntity
     /// <summary>Null ⇒ falls back to <see cref="ExamDefaults.PassThresholdPercent"/>.</summary>
     public decimal? PassThresholdPercent { get; private set; }
 
+    /// <summary>
+    /// The exam's type (spec #11) — e.g. "IELTS", "Pre-IELTS", "General English".
+    /// Defaults from the owning group's <see cref="Class.GroupType"/> at creation.
+    /// Null = untyped.
+    /// </summary>
+    public string? ExamType { get; private set; }
+
     public ICollection<ExamSection> Sections { get; } = new List<ExamSection>();
 
     /// <summary>The threshold actually applied — the per-exam override or the system default.</summary>
@@ -55,6 +62,15 @@ public sealed class Exam : BaseEntity
     {
         if (percent is < 0m or > 100m) throw new DomainException("Pass threshold must be between 0 and 100.");
         PassThresholdPercent = percent;
+        Touch();
+    }
+
+    /// <summary>Sets (or clears) the exam type. Trims; null/blank clears it. Max 64 chars.</summary>
+    public void SetExamType(string? examType)
+    {
+        var trimmed = string.IsNullOrWhiteSpace(examType) ? null : examType.Trim();
+        if (trimmed is { Length: > 64 }) throw new DomainException("Exam type must be 64 characters or fewer.");
+        ExamType = trimmed;
         Touch();
     }
 }

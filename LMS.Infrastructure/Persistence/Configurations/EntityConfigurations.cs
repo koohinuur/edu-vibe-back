@@ -1047,6 +1047,7 @@ public sealed class ExamConfiguration : IEntityTypeConfiguration<Exam>
         b.HasKey(x => x.Id);
         b.Property(x => x.Title).IsRequired().HasMaxLength(256);
         b.Property(x => x.PassThresholdPercent).HasPrecision(5, 2);
+        b.Property(x => x.ExamType).HasMaxLength(64);
         // One exam per exam-type curriculum lesson.
         b.HasIndex(x => x.CurriculumLessonId).IsUnique();
         b.HasOne(x => x.Class).WithMany().HasForeignKey(x => x.ClassId).OnDelete(DeleteBehavior.Cascade);
@@ -1091,6 +1092,7 @@ public sealed class ExamSectionScoreConfiguration : IEntityTypeConfiguration<Exa
         b.ToTable("exam_section_scores");
         b.HasKey(x => x.Id);
         b.Property(x => x.Score).HasPrecision(9, 2);
+        b.Property(x => x.Feedback).HasMaxLength(4000);
         b.HasIndex(x => new { x.ExamResultId, x.ExamSectionId }).IsUnique();
         b.HasOne(x => x.ExamResult).WithMany(r => r.SectionScores).HasForeignKey(x => x.ExamResultId)
             .OnDelete(DeleteBehavior.Cascade);

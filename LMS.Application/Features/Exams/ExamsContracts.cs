@@ -14,9 +14,10 @@ public sealed record ExamDto(
     string Title,
     decimal? PassThresholdPercent,
     decimal EffectiveThresholdPercent,
-    IReadOnlyCollection<ExamSectionDto> Sections);
+    IReadOnlyCollection<ExamSectionDto> Sections,
+    string? ExamType = null);
 
-public sealed record ExamSectionScoreDto(Guid ExamSectionId, decimal Score);
+public sealed record ExamSectionScoreDto(Guid ExamSectionId, decimal Score, string? Feedback = null);
 
 public sealed record ExamResultDto(
     Guid Id,
@@ -25,7 +26,9 @@ public sealed record ExamResultDto(
     decimal OverallPercent,
     bool Passed,
     DateTime EnteredAt,
-    IReadOnlyCollection<ExamSectionScoreDto> SectionScores);
+    IReadOnlyCollection<ExamSectionScoreDto> SectionScores,
+    bool IsPublished = false,
+    DateTime? PublishedAt = null);
 
 /// <summary>A roster row for the score-entry grid: a student + their current result (null = not yet entered).</summary>
 public sealed record ExamRosterRowDto(
@@ -38,7 +41,7 @@ public sealed record ExamRosterRowDto(
 public sealed record ExamRosterDto(ExamDto Exam, IReadOnlyCollection<ExamRosterRowDto> Rows);
 
 /// <summary>Per-section breakdown shown on the student profile.</summary>
-public sealed record StudentExamSectionDto(string Name, decimal Score, decimal MaxScore);
+public sealed record StudentExamSectionDto(string Name, decimal Score, decimal MaxScore, string? Feedback = null);
 
 public sealed record StudentExamResultDto(
     Guid ExamId,
@@ -49,14 +52,15 @@ public sealed record StudentExamResultDto(
     bool Passed,
     decimal ThresholdPercent,
     DateTime EnteredAt,
-    IReadOnlyCollection<StudentExamSectionDto> Sections);
+    IReadOnlyCollection<StudentExamSectionDto> Sections,
+    string? ExamType = null);
 
 // ---- write DTOs ------------------------------------------------------------
 
 /// <summary>A requested section in a create/update. Id null = new section.</summary>
 public sealed record ExamSectionInputDto(Guid? Id, string Name, decimal MaxScore, int Order);
 
-public sealed record SectionScoreInputDto(Guid ExamSectionId, decimal Score);
+public sealed record SectionScoreInputDto(Guid ExamSectionId, decimal Score, string? Feedback = null);
 
 // ---- commands / queries ----------------------------------------------------
 
@@ -65,13 +69,15 @@ public sealed record CreateExamCommand(
     Guid CurriculumLessonId,
     string Title,
     decimal? PassThresholdPercent,
-    IReadOnlyCollection<ExamSectionInputDto> Sections) : IRequest<Result<ExamDto>>;
+    IReadOnlyCollection<ExamSectionInputDto> Sections,
+    string? ExamType = null) : IRequest<Result<ExamDto>>;
 
 public sealed record UpdateExamCommand(
     Guid ExamId,
     string Title,
     decimal? PassThresholdPercent,
-    IReadOnlyCollection<ExamSectionInputDto> Sections) : IRequest<Result<ExamDto>>;
+    IReadOnlyCollection<ExamSectionInputDto> Sections,
+    string? ExamType = null) : IRequest<Result<ExamDto>>;
 
 public sealed record DeleteExamCommand(Guid ExamId) : IRequest<Result>;
 
@@ -88,6 +94,10 @@ public sealed record EnterExamResultCommand(
     IReadOnlyCollection<SectionScoreInputDto> Scores) : IRequest<Result<ExamResultDto>>;
 
 public sealed record DeleteExamResultCommand(Guid ExamId, Guid StudentProfileId) : IRequest<Result>;
+
+/// <summary>Publish (or unpublish) one student's result — the spec #12 visibility gate.</summary>
+public sealed record PublishExamResultCommand(Guid ExamId, Guid StudentProfileId, bool Publish)
+    : IRequest<Result<ExamResultDto>>;
 
 public sealed record GetStudentExamResultsQuery(Guid StudentProfileId)
     : IRequest<Result<IReadOnlyCollection<StudentExamResultDto>>>;
