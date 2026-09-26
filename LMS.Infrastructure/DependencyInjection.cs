@@ -77,6 +77,7 @@ public static class DependencyInjection
         // Universal per-user notifier: resolves a user → their linked Telegram
         // and DMs via the platform bot. Scoped (depends on the scoped DbContext).
         services.AddScoped<INotificationService, NotificationService>();
+        services.AddScoped<IInboxNotifier, InboxNotifier>();
 
         services.AddSingleton<ITaskGrader, TaskGrader>();
         services.AddSingleton<LMS.Application.Common.Salary.ISalaryCalculator, LMS.Application.Common.Salary.SalaryCalculator>();

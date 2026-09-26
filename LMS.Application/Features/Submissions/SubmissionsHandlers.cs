@@ -7,7 +7,8 @@ using Microsoft.EntityFrameworkCore;
 namespace LMS.Application.Features.Submissions;
 
 public sealed class SubmissionsHandlers(
-    IApplicationDbContext db, ICurrentUserService currentUser, INotificationService notifications) :
+    IApplicationDbContext db, ICurrentUserService currentUser, INotificationService notifications,
+    IInboxNotifier inbox) :
     IRequestHandler<SubmitAssignmentCommand, Result<SubmissionDto>>,
     IRequestHandler<SaveSubmissionDraftCommand, Result<SubmissionDto>>,
     IRequestHandler<GradeSubmissionCommand, Result<SubmissionDto>>,
@@ -84,16 +85,18 @@ public sealed class SubmissionsHandlers(
         db.SubmissionAudits.Add(new SubmissionAudit(s.Id, currentUser.UserId, "graded", $"score={scoreText}"));
         await db.SaveChangesAsync(cancellationToken);
 
-        // Telegram DM the student (via the platform bot) that their work is graded.
+        // Notify the student in-app (Messages) + mirror to Telegram — one call.
         var studentUserId = await db.StudentProfiles
             .Where(sp => sp.Id == s.StudentProfileId)
             .Select(sp => sp.UserId)
             .FirstOrDefaultAsync(cancellationToken);
         if (studentUserId != Guid.Empty)
-            await notifications.NotifyUserAsync(
-                studentUserId,
-                $"✅ Your submission was graded: {scoreText}.\nOpen EduVibe to see feedback.",
-                cancellationToken);
+        {
+            var lang = await ResolveStudentLangAsync(studentUserId, cancellationToken);
+            await inbox.NotifyAsync(
+                studentUserId, currentUser.UserId ?? Guid.Empty,
+                SubmissionNotificationTexts.Graded(lang, scoreText), cancellationToken);
+        }
 
         return Result<SubmissionDto>.Ok(Map(s));
     }
@@ -107,14 +110,16 @@ public sealed class SubmissionsHandlers(
         db.SubmissionAudits.Add(new SubmissionAudit(s.Id, currentUser.UserId, "returned", request.Feedback ?? ""));
         await db.SaveChangesAsync(ct);
 
-        // Let the student know they need to revise + resubmit.
+        // Let the student know (in-app + Telegram) why it was returned + what to fix.
         var studentUserId = await db.StudentProfiles
             .Where(sp => sp.Id == s.StudentProfileId).Select(sp => sp.UserId).FirstOrDefaultAsync(ct);
         if (studentUserId != Guid.Empty)
-            await notifications.NotifyUserAsync(
-                studentUserId,
-                "↩️ Your submission was returned for a redo. Open EduVibe to revise and resubmit.",
-                ct);
+        {
+            var lang = await ResolveStudentLangAsync(studentUserId, ct);
+            await inbox.NotifyAsync(
+                studentUserId, currentUser.UserId ?? Guid.Empty,
+                SubmissionNotificationTexts.Returned(lang, request.Feedback), ct);
+        }
 
         return Result<SubmissionDto>.Ok(Map(s));
     }
@@ -147,6 +152,7 @@ public sealed class SubmissionsHandlers(
             db.SubmissionAudits.Add(new SubmissionAudit(existing.Id, currentUser.UserId, "resubmitted", null));
             await db.SaveChangesAsync(cancellationToken);
             await NotifyTeacherOfSubmissionAsync(assignment, callerStudentProfileId.Value, cancellationToken);
+            await NotifyStudentSubmittedAsync(assignment, cancellationToken);
             return Result<SubmissionDto>.Ok(Map(existing));
         }
 
@@ -157,6 +163,7 @@ public sealed class SubmissionsHandlers(
         db.SubmissionAudits.Add(new SubmissionAudit(s.Id, currentUser.UserId, "created", isLate ? "late" : null));
         await db.SaveChangesAsync(cancellationToken);
         await NotifyTeacherOfSubmissionAsync(assignment, callerStudentProfileId.Value, cancellationToken);
+        await NotifyStudentSubmittedAsync(assignment, cancellationToken);
         return Result<SubmissionDto>.Ok(Map(s));
     }
 
@@ -184,6 +191,40 @@ public sealed class SubmissionsHandlers(
             recipient,
             $"📝 {who} submitted homework: {assignment.Title}.\nOpen EduVibe to review.",
             ct);
+    }
+
+    /// <summary>
+    /// Confirms to the submitting student (in-app Messages + Telegram mirror) that
+    /// their homework was received. Sender is the class teacher (or the assignment
+    /// author), so it lands in the normal teacher↔student thread. No-op with no
+    /// teacher to attribute it to.
+    /// </summary>
+    private async Task NotifyStudentSubmittedAsync(Assignment assignment, CancellationToken ct)
+    {
+        var studentUserId = currentUser.UserId ?? Guid.Empty;
+        if (studentUserId == Guid.Empty) return;
+
+        var classTeacher = await db.Classes
+            .Where(c => c.Id == assignment.ClassId).Select(c => c.TeacherUserId).FirstOrDefaultAsync(ct);
+        var sender = classTeacher ?? assignment.CreatedByTeacherId;
+
+        var lang = await ResolveStudentLangAsync(studentUserId, ct);
+        await inbox.NotifyAsync(
+            studentUserId, sender, SubmissionNotificationTexts.Submitted(lang, assignment.Title), ct);
+    }
+
+    /// <summary>
+    /// Best-effort UI language for a user's notifications: the language of the bot
+    /// chat behind their linked Telegram account, or "en" when unknown.
+    /// </summary>
+    private async Task<string> ResolveStudentLangAsync(Guid userId, CancellationToken ct)
+    {
+        var lang = await (
+            from ta in db.TelegramAccounts
+            join ts in db.TelegramSubscribers on ta.TelegramUserId equals ts.ChatId
+            where ta.UserId == userId
+            select ts.LanguageCode).FirstOrDefaultAsync(ct);
+        return string.IsNullOrWhiteSpace(lang) ? "en" : lang;
     }
 
     public async Task<Result<SubmissionDto>> Handle(SaveSubmissionDraftCommand request,
