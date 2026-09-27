@@ -121,13 +121,20 @@ public sealed class ExamSection : BaseEntity
         Touch();
     }
 
-    /// <summary>Sets the section's kind + take-content. HTML is capped to keep rows sane.</summary>
+    /// <summary>
+    /// Sets the section's kind + take-content. HTML is capped to keep rows sane.
+    /// <paramref name="contentHtml"/> is <c>null</c> ⇒ keep the existing HTML (so an
+    /// edit that doesn't re-upload preserves it), empty ⇒ clear, non-empty ⇒ replace.
+    /// </summary>
     public void SetContent(ExamSectionKind kind, string? contentHtml, string? audioUrl, string? prompt, int? durationMinutes)
     {
         Kind = kind;
-        var html = string.IsNullOrWhiteSpace(contentHtml) ? null : contentHtml;
-        if (html is { Length: > 2_000_000 }) throw new DomainException("Section HTML is too large (2 MB max).");
-        ContentHtml = html;
+        if (contentHtml is not null)
+        {
+            var html = contentHtml.Trim().Length == 0 ? null : contentHtml;
+            if (html is { Length: > 2_000_000 }) throw new DomainException("Section HTML is too large (2 MB max).");
+            ContentHtml = html;
+        }
         AudioUrl = string.IsNullOrWhiteSpace(audioUrl) ? null : audioUrl.Trim();
         Prompt = string.IsNullOrWhiteSpace(prompt) ? null : prompt.Trim();
         if (durationMinutes is < 0) throw new DomainException("Duration can't be negative.");
