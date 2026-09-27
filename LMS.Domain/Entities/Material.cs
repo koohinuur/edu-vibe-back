@@ -53,6 +53,13 @@ public sealed class Material : BaseEntity
     public Guid UploadedByUserId { get; private set; }
     public User? UploadedByUser { get; private set; }
 
+    /// <summary>
+    /// The course (curriculum template) this material belongs to (spec #9). When
+    /// set, the Course Builder's per-lesson material picker offers this material
+    /// only for that course. Null = a general/library material not tied to a course.
+    /// </summary>
+    public Guid? CurriculumTemplateId { get; private set; }
+
     public ICollection<MaterialClass> ClassLinks { get; } = new List<MaterialClass>();
 
     public void UpdateDetails(string title, string? description, MaterialVisibility visibility)
@@ -60,6 +67,13 @@ public sealed class Material : BaseEntity
         Title = NormalizeTitle(title);
         Description = NormalizeDescription(description);
         Visibility = visibility;
+        Touch();
+    }
+
+    /// <summary>Sets (or clears) the course this material belongs to.</summary>
+    public void SetCourse(Guid? curriculumTemplateId)
+    {
+        CurriculumTemplateId = curriculumTemplateId == Guid.Empty ? null : curriculumTemplateId;
         Touch();
     }
 

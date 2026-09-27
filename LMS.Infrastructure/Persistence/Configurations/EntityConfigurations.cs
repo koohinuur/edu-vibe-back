@@ -151,6 +151,7 @@ public sealed class ClassConfiguration : IEntityTypeConfiguration<Class>
     public void Configure(EntityTypeBuilder<Class> b)
     {
         b.ToTable("classes");
+        b.Property(x => x.GroupType).HasMaxLength(64);
         b.HasKey(x => x.Id);
         b.Property(x => x.Title).IsRequired().HasMaxLength(256);
         b.Property(x => x.MonthlyPrice).HasPrecision(18, 2);
@@ -720,8 +721,26 @@ public sealed class MaterialConfiguration : IEntityTypeConfiguration<Material>
         b.HasIndex(x => x.CreatedAt).HasDatabaseName("ix_materials_created_at");
         b.HasIndex(x => x.UploadedByUserId).HasDatabaseName("ix_materials_uploaded_by");
         b.HasIndex(x => x.Visibility).HasDatabaseName("ix_materials_visibility");
+        // Course-scoped materials (spec #9): the per-lesson picker filters by course.
+        b.HasIndex(x => x.CurriculumTemplateId).HasDatabaseName("ix_materials_curriculum_template");
         b.HasOne(x => x.UploadedByUser).WithMany().HasForeignKey(x => x.UploadedByUserId)
             .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+public sealed class CurriculumLessonMaterialConfiguration : IEntityTypeConfiguration<CurriculumLessonMaterial>
+{
+    public void Configure(EntityTypeBuilder<CurriculumLessonMaterial> b)
+    {
+        b.ToTable("curriculum_lesson_materials");
+        b.HasKey(x => x.Id);
+        // One row per (lesson, material, section); re-attaching is idempotent.
+        b.HasIndex(x => new { x.CurriculumLessonId, x.MaterialId, x.Section }).IsUnique();
+        b.HasIndex(x => x.CurriculumLessonId).HasDatabaseName("ix_curriculum_lesson_materials_lesson");
+        b.HasOne(x => x.CurriculumLesson).WithMany()
+            .HasForeignKey(x => x.CurriculumLessonId).OnDelete(DeleteBehavior.Cascade);
+        b.HasOne(x => x.Material).WithMany()
+            .HasForeignKey(x => x.MaterialId).OnDelete(DeleteBehavior.Cascade);
     }
 }
 
@@ -1047,6 +1066,7 @@ public sealed class ExamConfiguration : IEntityTypeConfiguration<Exam>
         b.HasKey(x => x.Id);
         b.Property(x => x.Title).IsRequired().HasMaxLength(256);
         b.Property(x => x.PassThresholdPercent).HasPrecision(5, 2);
+        b.Property(x => x.ExamType).HasMaxLength(64);
         // One exam per exam-type curriculum lesson.
         b.HasIndex(x => x.CurriculumLessonId).IsUnique();
         b.HasOne(x => x.Class).WithMany().HasForeignKey(x => x.ClassId).OnDelete(DeleteBehavior.Cascade);
@@ -1063,8 +1083,41 @@ public sealed class ExamSectionConfiguration : IEntityTypeConfiguration<ExamSect
         b.HasKey(x => x.Id);
         b.Property(x => x.Name).IsRequired().HasMaxLength(128);
         b.Property(x => x.MaxScore).HasPrecision(9, 2);
+        // IELTS take-content (E2). HTML can be large → unbounded text column.
+        b.Property(x => x.ContentHtml).HasColumnType("text");
+        b.Property(x => x.AudioUrl).HasMaxLength(1024);
+        b.Property(x => x.Prompt).HasColumnType("text");
         b.HasIndex(x => new { x.ExamId, x.Order });
         b.HasOne(x => x.Exam).WithMany(e => e.Sections).HasForeignKey(x => x.ExamId)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+public sealed class ExamAttemptConfiguration : IEntityTypeConfiguration<ExamAttempt>
+{
+    public void Configure(EntityTypeBuilder<ExamAttempt> b)
+    {
+        b.ToTable("exam_attempts");
+        b.HasKey(x => x.Id);
+        b.HasIndex(x => new { x.ExamId, x.StudentProfileId });
+        b.HasOne(x => x.Exam).WithMany().HasForeignKey(x => x.ExamId).OnDelete(DeleteBehavior.Cascade);
+        b.HasOne(x => x.StudentProfile).WithMany().HasForeignKey(x => x.StudentProfileId)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+public sealed class ExamSectionResponseConfiguration : IEntityTypeConfiguration<ExamSectionResponse>
+{
+    public void Configure(EntityTypeBuilder<ExamSectionResponse> b)
+    {
+        b.ToTable("exam_section_responses");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.ResponseText).HasColumnType("text");
+        b.Property(x => x.SelfScore).HasPrecision(9, 2);
+        b.HasIndex(x => new { x.ExamAttemptId, x.ExamSectionId }).IsUnique();
+        b.HasOne(x => x.ExamAttempt).WithMany(a => a.Responses).HasForeignKey(x => x.ExamAttemptId)
+            .OnDelete(DeleteBehavior.Cascade);
+        b.HasOne(x => x.ExamSection).WithMany().HasForeignKey(x => x.ExamSectionId)
             .OnDelete(DeleteBehavior.Cascade);
     }
 }
@@ -1091,6 +1144,7 @@ public sealed class ExamSectionScoreConfiguration : IEntityTypeConfiguration<Exa
         b.ToTable("exam_section_scores");
         b.HasKey(x => x.Id);
         b.Property(x => x.Score).HasPrecision(9, 2);
+        b.Property(x => x.Feedback).HasMaxLength(4000);
         b.HasIndex(x => new { x.ExamResultId, x.ExamSectionId }).IsUnique();
         b.HasOne(x => x.ExamResult).WithMany(r => r.SectionScores).HasForeignKey(x => x.ExamResultId)
             .OnDelete(DeleteBehavior.Cascade);

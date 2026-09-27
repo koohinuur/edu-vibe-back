@@ -1,4 +1,5 @@
 using LMS.Domain.Common;
+using LMS.Domain.Enums;
 using LMS.Domain.Exceptions;
 
 namespace LMS.Domain.Entities;
@@ -39,6 +40,13 @@ public sealed class Exam : BaseEntity
     /// <summary>Null ⇒ falls back to <see cref="ExamDefaults.PassThresholdPercent"/>.</summary>
     public decimal? PassThresholdPercent { get; private set; }
 
+    /// <summary>
+    /// The exam's type (spec #11) — e.g. "IELTS", "Pre-IELTS", "General English".
+    /// Defaults from the owning group's <see cref="Class.GroupType"/> at creation.
+    /// Null = untyped.
+    /// </summary>
+    public string? ExamType { get; private set; }
+
     public ICollection<ExamSection> Sections { get; } = new List<ExamSection>();
 
     /// <summary>The threshold actually applied — the per-exam override or the system default.</summary>
@@ -55,6 +63,15 @@ public sealed class Exam : BaseEntity
     {
         if (percent is < 0m or > 100m) throw new DomainException("Pass threshold must be between 0 and 100.");
         PassThresholdPercent = percent;
+        Touch();
+    }
+
+    /// <summary>Sets (or clears) the exam type. Trims; null/blank clears it. Max 64 chars.</summary>
+    public void SetExamType(string? examType)
+    {
+        var trimmed = string.IsNullOrWhiteSpace(examType) ? null : examType.Trim();
+        if (trimmed is { Length: > 64 }) throw new DomainException("Exam type must be 64 characters or fewer.");
+        ExamType = trimmed;
         Touch();
     }
 }
@@ -79,10 +96,49 @@ public sealed class ExamSection : BaseEntity
     public decimal MaxScore { get; private set; }
     public int Order { get; private set; }
 
+    /// <summary>Which IELTS paper this section is — drives how the student takes it.</summary>
+    public ExamSectionKind Kind { get; private set; } = ExamSectionKind.Generic;
+
+    /// <summary>
+    /// For Listening/Reading: the self-contained HTML test rendered in a sandboxed
+    /// iframe. Null = no HTML (e.g. a Writing section that only has a prompt).
+    /// </summary>
+    public string? ContentHtml { get; private set; }
+
+    /// <summary>For Listening: the audio track URL the test plays. Null = none.</summary>
+    public string? AudioUrl { get; private set; }
+
+    /// <summary>For Writing/Speaking: the task prompt the student answers. Null = none.</summary>
+    public string? Prompt { get; private set; }
+
+    /// <summary>Suggested time for this section, in minutes. Null = not set.</summary>
+    public int? DurationMinutes { get; private set; }
+
     public void SetName(string name)
     {
         if (string.IsNullOrWhiteSpace(name)) throw new DomainException("Section name is required.");
         Name = name.Trim();
+        Touch();
+    }
+
+    /// <summary>
+    /// Sets the section's kind + take-content. HTML is capped to keep rows sane.
+    /// <paramref name="contentHtml"/> is <c>null</c> ⇒ keep the existing HTML (so an
+    /// edit that doesn't re-upload preserves it), empty ⇒ clear, non-empty ⇒ replace.
+    /// </summary>
+    public void SetContent(ExamSectionKind kind, string? contentHtml, string? audioUrl, string? prompt, int? durationMinutes)
+    {
+        Kind = kind;
+        if (contentHtml is not null)
+        {
+            var html = contentHtml.Trim().Length == 0 ? null : contentHtml;
+            if (html is { Length: > 2_000_000 }) throw new DomainException("Section HTML is too large (2 MB max).");
+            ContentHtml = html;
+        }
+        AudioUrl = string.IsNullOrWhiteSpace(audioUrl) ? null : audioUrl.Trim();
+        Prompt = string.IsNullOrWhiteSpace(prompt) ? null : prompt.Trim();
+        if (durationMinutes is < 0) throw new DomainException("Duration can't be negative.");
+        DurationMinutes = durationMinutes;
         Touch();
     }
 

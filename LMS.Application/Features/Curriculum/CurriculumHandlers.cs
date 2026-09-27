@@ -1,5 +1,6 @@
 using LMS.Application.Common.Abstractions;
 using LMS.Application.Common.Models;
+using LMS.Application.Common.Security;
 using LMS.Domain.Entities;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -15,6 +16,13 @@ public sealed class CurriculumHandlers(IApplicationDbContext db, ICurrentUserSer
     public async Task<Result<IReadOnlyCollection<CurriculumTemplateSummaryDto>>> Handle(
         GetCurriculumTemplatesQuery request, CancellationToken ct)
     {
+        // SECURITY (spec #8): the template library is an ADMIN surface. Curriculum
+        // is assigned to a group by an admin; a teacher only ever sees their class's
+        // assigned curriculum (via the class-scoped reads), never the whole library.
+        if (!currentUser.IsAdmin())
+            return Result<IReadOnlyCollection<CurriculumTemplateSummaryDto>>.Fail(
+                "FORBIDDEN", "Only admins can browse the curriculum template library.");
+
         // The clone-from library = published MASTER templates only. Per-class clones
         // (IsSystem=false, named "{Class} — {Template}") are working copies, never a
         // clone source — excluding them keeps the picker to ready templates.
@@ -36,6 +44,11 @@ public sealed class CurriculumHandlers(IApplicationDbContext db, ICurrentUserSer
 
     public async Task<Result<CurriculumTreeDto>> Handle(GetCurriculumTreeQuery request, CancellationToken ct)
     {
+        // SECURITY (spec #8): previewing a library template's full tree is admin-only,
+        // like the library listing. Teachers read their class curriculum class-scoped.
+        if (!currentUser.IsAdmin())
+            return Result<CurriculumTreeDto>.Fail("FORBIDDEN", "Only admins can preview library templates.");
+
         var t = await db.CurriculumTemplates.AsNoTracking().FirstOrDefaultAsync(x => x.Id == request.TemplateId, ct);
         if (t is null) return Result<CurriculumTreeDto>.Fail("NOT_FOUND", "Template not found.");
 
@@ -72,8 +85,10 @@ public sealed class CurriculumHandlers(IApplicationDbContext db, ICurrentUserSer
     {
         var cls = await db.Classes.FirstOrDefaultAsync(c => c.Id == request.ClassId, ct);
         if (cls is null) return Result<ClassCurriculumDto>.Fail("NOT_FOUND", "Class not found.");
-        if (!await CurriculumAuthorization.CanManageClassAsync(db, currentUser, cls.Id, ct))
-            return Result<ClassCurriculumDto>.Fail("FORBIDDEN", "Only the class teacher or an admin can manage this class's curriculum.");
+        // SECURITY (spec #8): choosing WHICH curriculum a group follows is an admin
+        // decision. Teachers run the assigned curriculum but don't (re)assign it.
+        if (!currentUser.IsAdmin())
+            return Result<ClassCurriculumDto>.Fail("FORBIDDEN", "Only an admin can assign a group's curriculum.");
 
         var template = await db.CurriculumTemplates.AsNoTracking().FirstOrDefaultAsync(t => t.Id == request.TemplateId, ct);
         if (template is null) return Result<ClassCurriculumDto>.Fail("NOT_FOUND", "Template not found.");

@@ -43,6 +43,13 @@ public sealed class Class : BaseEntity
     /// <summary>Monthly group price per student (currency-agnostic). Null = not priced yet.</summary>
     public decimal? MonthlyPrice { get; private set; }
 
+    /// <summary>
+    /// The group's type — e.g. "IELTS", "Pre-IELTS", "General English", or a custom
+    /// value the admin typed. Free-form so admins can add their own types; drives
+    /// exam type (F8) and helps categorise groups. Null = not set.
+    /// </summary>
+    public string? GroupType { get; private set; }
+
     public ICollection<Enrollment> Enrollments { get; } = new List<Enrollment>();
     public ICollection<Assignment> Assignments { get; } = new List<Assignment>();
     public ICollection<ClassResource> Resources { get; } = new List<ClassResource>();
@@ -119,6 +126,16 @@ public sealed class Class : BaseEntity
     {
         if (price is < 0m) throw new DomainException("Monthly price can't be negative.");
         MonthlyPrice = price;
+        Touch();
+    }
+
+    /// <summary>Sets (or clears) the group's type. Trims; null/blank clears it. Max 64 chars.</summary>
+    public void SetGroupType(string? groupType)
+    {
+        var trimmed = string.IsNullOrWhiteSpace(groupType) ? null : groupType.Trim();
+        if (trimmed is { Length: > 64 })
+            throw new DomainException("Group type must be 64 characters or fewer.");
+        GroupType = trimmed;
         Touch();
     }
 }

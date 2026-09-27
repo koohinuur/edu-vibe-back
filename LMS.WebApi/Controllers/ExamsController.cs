@@ -67,12 +67,63 @@ public sealed class ExamsController(ISender sender) : ControllerBase
         Guid id, Guid studentProfileId, CancellationToken ct)
         => Respond(await sender.Send(new DeleteExamResultCommand(id, studentProfileId), ct));
 
+    public sealed record PublishBody(bool Publish);
+
+    /// <summary>Publish (or hide) one student's result — the spec #12 visibility gate.</summary>
+    [HttpPost("{id:guid}/results/{studentProfileId:guid}/publish")]
+    [PermissionAuthorize(Permissions.Exams.Manage)]
+    public async Task<ActionResult<ApiResponse<ExamResultDto>>> PublishResult(
+        Guid id, Guid studentProfileId, [FromBody] PublishBody body, CancellationToken ct)
+        => Respond(await sender.Send(new PublishExamResultCommand(id, studentProfileId, body.Publish), ct));
+
     /// <summary>A student's exam results for the profile view (self-scoped in the handler).</summary>
     [HttpGet("student/{studentProfileId:guid}/results")]
     [PermissionAuthorize(Permissions.Exams.Read)]
     public async Task<ActionResult<ApiResponse<IReadOnlyCollection<StudentExamResultDto>>>> StudentResults(
         Guid studentProfileId, CancellationToken ct)
         => Respond(await sender.Send(new GetStudentExamResultsQuery(studentProfileId), ct));
+
+    // ---- taking (student sitting the exam, E2) -----------------------------
+
+    /// <summary>The signed-in student's exams across their enrolled classes.</summary>
+    [HttpGet("mine")]
+    [PermissionAuthorize(Permissions.Exams.Read)]
+    public async Task<ActionResult<ApiResponse<IReadOnlyCollection<MyExamDto>>>> Mine(CancellationToken ct)
+        => Respond(await sender.Send(new GetMyExamsQuery(), ct));
+
+    /// <summary>The exam in IELTS format for the enrolled student to take (self-scoped).</summary>
+    [HttpGet("{id:guid}/take")]
+    [PermissionAuthorize(Permissions.Exams.Read)]
+    public async Task<ActionResult<ApiResponse<TakeExamDto>>> Take(Guid id, CancellationToken ct)
+        => Respond(await sender.Send(new GetExamForTakingQuery(id), ct));
+
+    /// <summary>The share-ready results table (Student ID · L · R · W · S · Overall) for an exam.</summary>
+    [HttpGet("{id:guid}/results-table")]
+    [PermissionAuthorize(Permissions.Exams.Manage)]
+    public async Task<ActionResult<ApiResponse<ExamResultsTableDto>>> ResultsTable(Guid id, CancellationToken ct)
+        => Respond(await sender.Send(new GetExamResultsTableQuery(id), ct));
+
+    /// <summary>A student's attempt (their written answers) for teacher review.</summary>
+    [HttpGet("{id:guid}/attempt/{studentProfileId:guid}")]
+    [PermissionAuthorize(Permissions.Exams.Manage)]
+    public async Task<ActionResult<ApiResponse<StudentAttemptDto>>> StudentAttempt(
+        Guid id, Guid studentProfileId, CancellationToken ct)
+        => Respond(await sender.Send(new GetStudentExamAttemptQuery(id, studentProfileId), ct));
+
+    /// <summary>Start (or resume) the caller's attempt.</summary>
+    [HttpPost("{id:guid}/attempt/start")]
+    [PermissionAuthorize(Permissions.Exams.Read)]
+    public async Task<ActionResult<ApiResponse<ExamAttemptDto>>> StartAttempt(Guid id, CancellationToken ct)
+        => Respond(await sender.Send(new StartExamAttemptCommand(id), ct));
+
+    public sealed record SubmitAttemptBody(IReadOnlyCollection<SectionResponseInputDto> Responses);
+
+    /// <summary>Save the caller's responses and submit the attempt.</summary>
+    [HttpPost("{id:guid}/attempt/submit")]
+    [PermissionAuthorize(Permissions.Exams.Read)]
+    public async Task<ActionResult<ApiResponse<ExamAttemptDto>>> SubmitAttempt(
+        Guid id, [FromBody] SubmitAttemptBody body, CancellationToken ct)
+        => Respond(await sender.Send(new SubmitExamAttemptCommand(id, body.Responses ?? []), ct));
 
     // ---- response mapping --------------------------------------------------
 

@@ -22,8 +22,10 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
     IRequestHandler<GetClassExamsQuery, Result<IReadOnlyCollection<ExamDto>>>,
     IRequestHandler<GetExamRosterQuery, Result<ExamRosterDto>>,
     IRequestHandler<EnterExamResultCommand, Result<ExamResultDto>>,
+    IRequestHandler<PublishExamResultCommand, Result<ExamResultDto>>,
     IRequestHandler<DeleteExamResultCommand, Result>,
-    IRequestHandler<GetStudentExamResultsQuery, Result<IReadOnlyCollection<StudentExamResultDto>>>
+    IRequestHandler<GetStudentExamResultsQuery, Result<IReadOnlyCollection<StudentExamResultDto>>>,
+    IRequestHandler<GetExamResultsTableQuery, Result<ExamResultsTableDto>>
 {
     // ---- config ------------------------------------------------------------
 
@@ -57,8 +59,15 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
             return Result<ExamDto>.Fail("CONFLICT", "An exam already exists for this lesson.");
 
         var exam = new Exam(cls.Id, request.CurriculumLessonId, request.Title, request.PassThresholdPercent);
+        // Exam type (spec #11) — the create UI pre-fills it from the group's
+        // GroupType (feat/group-type), so an IELTS group's exam is an IELTS exam.
+        exam.SetExamType(request.ExamType);
         foreach (var s in request.Sections)
-            exam.Sections.Add(new ExamSection(exam.Id, s.Name, s.MaxScore, s.Order));
+        {
+            var section = new ExamSection(exam.Id, s.Name, s.MaxScore, s.Order);
+            section.SetContent(s.Kind, s.ContentHtml, s.AudioUrl, s.Prompt, s.DurationMinutes);
+            exam.Sections.Add(section);
+        }
         await db.Exams.AddAsync(exam, ct);
         await db.SaveChangesAsync(ct);
         return Result<ExamDto>.Ok(MapExam(exam), "Exam created.");
@@ -90,6 +99,7 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
 
         exam.SetTitle(request.Title);
         exam.SetPassThreshold(request.PassThresholdPercent);
+        exam.SetExamType(request.ExamType ?? exam.ExamType);
 
         var existingById = exam.Sections.ToDictionary(s => s.Id);
         var keepIds = new HashSet<Guid>();
@@ -100,11 +110,13 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
                 sec.SetName(s.Name);
                 sec.SetMaxScore(s.MaxScore);
                 sec.SetOrder(s.Order);
+                sec.SetContent(s.Kind, s.ContentHtml, s.AudioUrl, s.Prompt, s.DurationMinutes);
                 keepIds.Add(id);
             }
             else
             {
                 var added = new ExamSection(exam.Id, s.Name, s.MaxScore, s.Order);
+                added.SetContent(s.Kind, s.ContentHtml, s.AudioUrl, s.Prompt, s.DurationMinutes);
                 await db.ExamSections.AddAsync(added, ct);
                 exam.Sections.Add(added);
                 keepIds.Add(added.Id);
@@ -213,11 +225,27 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
         foreach (var s in request.Scores)
         {
             var added = new ExamSectionScore(result.Id, s.ExamSectionId, s.Score);
+            added.SetFeedback(s.Feedback); // per-section feedback (spec #12)
             await db.ExamSectionScores.AddAsync(added, ct);
             result.SectionScores.Add(added);
         }
         await db.SaveChangesAsync(ct);
         return Result<ExamResultDto>.Ok(MapResult(result), "Scores saved.");
+    }
+
+    public async Task<Result<ExamResultDto>> Handle(PublishExamResultCommand request, CancellationToken ct)
+    {
+        var (exam, code, msg) = await ResolveOwnedExamAsync(request.ExamId, ct, tracking: true);
+        if (exam is null) return Result<ExamResultDto>.Fail(code!, msg!);
+
+        var result = await db.ExamResults.Include(r => r.SectionScores)
+            .FirstOrDefaultAsync(r => r.ExamId == request.ExamId && r.StudentProfileId == request.StudentProfileId, ct);
+        if (result is null) return Result<ExamResultDto>.Fail("NOT_FOUND", "Enter the result before publishing it.");
+
+        if (request.Publish) result.Publish(DateTime.UtcNow);
+        else result.Unpublish();
+        await db.SaveChangesAsync(ct);
+        return Result<ExamResultDto>.Ok(MapResult(result), request.Publish ? "Result published." : "Result hidden.");
     }
 
     public async Task<Result> Handle(DeleteExamResultCommand request, CancellationToken ct)
@@ -257,8 +285,13 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
         // MultipleCollectionIncludeWarning (configured to throw). Kept provider-agnostic
         // (no AsSplitQuery, which lives in the Relational assembly the Application layer
         // doesn't reference).
+        // A student sees only PUBLISHED results (spec #12); an admin or the
+        // student's teacher sees every result (published or not) for review.
+        var publishedOnly = isSelf && !IsAdmin;
+
         var results = await db.ExamResults.AsNoTracking()
             .Where(r => r.StudentProfileId == request.StudentProfileId)
+            .Where(r => !publishedOnly || r.IsPublished)
             .Include(r => r.SectionScores)
             .OrderByDescending(r => r.EnteredAt)
             .ToListAsync(ct);
@@ -284,17 +317,77 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
                 var sectionById = exam.Sections.ToDictionary(s => s.Id);
                 var sections = r.SectionScores
                     .Where(ss => sectionById.ContainsKey(ss.ExamSectionId))
-                    .Select(ss => new { Sec = sectionById[ss.ExamSectionId], ss.Score })
+                    .Select(ss => new { Sec = sectionById[ss.ExamSectionId], ss.Score, ss.Feedback })
                     .OrderBy(x => x.Sec.Order)
-                    .Select(x => new StudentExamSectionDto(x.Sec.Name, x.Score, x.Sec.MaxScore))
+                    .Select(x => new StudentExamSectionDto(x.Sec.Name, x.Score, x.Sec.MaxScore, x.Feedback))
                     .ToList();
                 return new StudentExamResultDto(
                     r.ExamId, exam.Title, exam.ClassId,
                     classTitleById.TryGetValue(exam.ClassId, out var clsTitle) ? clsTitle : null,
-                    r.OverallPercent, r.Passed, exam.EffectiveThresholdPercent, r.EnteredAt, sections);
+                    r.OverallPercent, r.Passed, exam.EffectiveThresholdPercent, r.EnteredAt, sections, exam.ExamType);
             }).ToList();
 
         return Result<IReadOnlyCollection<StudentExamResultDto>>.Ok(dtos);
+    }
+
+    // ---- share-ready results table (spec #13) ------------------------------
+
+    public async Task<Result<ExamResultsTableDto>> Handle(GetExamResultsTableQuery request, CancellationToken ct)
+    {
+        var (exam, code, msg) = await ResolveOwnedExamAsync(request.ExamId, ct, tracking: false);
+        if (exam is null) return Result<ExamResultsTableDto>.Fail(code!, msg!);
+
+        // Map each section to its IELTS paper by Kind.
+        Guid? sectionOf(ExamSectionKind kind) => exam.Sections.Where(s => s.Kind == kind)
+            .OrderBy(s => s.Order).Select(s => (Guid?)s.Id).FirstOrDefault();
+        var listeningId = sectionOf(ExamSectionKind.Listening);
+        var readingId = sectionOf(ExamSectionKind.Reading);
+        var writingId = sectionOf(ExamSectionKind.Writing);
+        var speakingId = sectionOf(ExamSectionKind.Speaking);
+
+        var results = await db.ExamResults.AsNoTracking().Include(r => r.SectionScores)
+            .Where(r => r.ExamId == exam.Id).ToListAsync(ct);
+
+        var studentIds = results.Select(r => r.StudentProfileId).ToList();
+        var nameById = await (
+            from sp in db.StudentProfiles.AsNoTracking()
+            join u in db.Users on sp.UserId equals u.Id
+            where studentIds.Contains(sp.Id)
+            select new { sp.Id, sp.FirstName, sp.LastName, u.Email })
+            .ToDictionaryAsync(
+                x => x.Id,
+                x => string.Join(" ", new[] { x.FirstName, x.LastName }.Where(s => !string.IsNullOrWhiteSpace(s))).Trim() is { Length: > 0 } full
+                    ? full : (x.Email ?? "Student"),
+                ct);
+
+        decimal? scoreIn(ExamResult r, Guid? sectionId) => sectionId is { } id
+            ? r.SectionScores.Where(s => s.ExamSectionId == id).Select(s => (decimal?)s.Score).FirstOrDefault()
+            : null;
+
+        var rows = results
+            .Select(r =>
+            {
+                var l = scoreIn(r, listeningId);
+                var rd = scoreIn(r, readingId);
+                var w = scoreIn(r, writingId);
+                var sp = scoreIn(r, speakingId);
+                var overall = OverallBand(l, rd, w, sp);
+                var name = nameById.TryGetValue(r.StudentProfileId, out var n) ? n : "Student";
+                return new ExamResultsRowDto(name, l, rd, w, sp, overall, r.IsPublished);
+            })
+            .OrderBy(x => x.StudentName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return Result<ExamResultsTableDto>.Ok(new ExamResultsTableDto(exam.Id, exam.Title, exam.ExamType, rows));
+    }
+
+    /// <summary>IELTS overall band: average of the present section bands, rounded to the nearest 0.5.</summary>
+    private static decimal? OverallBand(params decimal?[] bands)
+    {
+        var present = bands.Where(b => b is not null).Select(b => b!.Value).ToList();
+        if (present.Count == 0) return null;
+        var avg = present.Average();
+        return Math.Round(avg * 2m, MidpointRounding.AwayFromZero) / 2m;
     }
 
     // ---- shared plumbing ---------------------------------------------------
@@ -341,9 +434,13 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
     private static ExamDto MapExam(Exam e) => new(
         e.Id, e.ClassId, e.CurriculumLessonId, e.Title, e.PassThresholdPercent, e.EffectiveThresholdPercent,
         e.Sections.OrderBy(s => s.Order)
-            .Select(s => new ExamSectionDto(s.Id, s.Name, s.MaxScore, s.Order)).ToList());
+            .Select(s => new ExamSectionDto(
+                s.Id, s.Name, s.MaxScore, s.Order,
+                s.Kind, s.Prompt, s.AudioUrl, s.DurationMinutes, s.ContentHtml != null)).ToList(),
+        e.ExamType);
 
     private static ExamResultDto MapResult(ExamResult r) => new(
         r.Id, r.ExamId, r.StudentProfileId, r.OverallPercent, r.Passed, r.EnteredAt,
-        r.SectionScores.Select(s => new ExamSectionScoreDto(s.ExamSectionId, s.Score)).ToList());
+        r.SectionScores.Select(s => new ExamSectionScoreDto(s.ExamSectionId, s.Score, s.Feedback)).ToList(),
+        r.IsPublished, r.PublishedAt);
 }
