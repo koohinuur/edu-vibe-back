@@ -12,9 +12,11 @@ public sealed record ClassDto(
     ClassStatus Status,
     Guid? TeacherUserId,
     int EnrolledCount,
-    decimal? MonthlyPrice = null);
+    decimal? MonthlyPrice = null,
+    string? GroupType = null);
 
-public sealed record CreateClassCommand(string Title, int MaxStudents, Modality Modality, Guid? TeacherUserId)
+public sealed record CreateClassCommand(
+    string Title, int MaxStudents, Modality Modality, Guid? TeacherUserId, string? GroupType = null)
     : IRequest<Result<ClassDto>>;
 
 public sealed record UpdateClassCommand(
@@ -22,7 +24,12 @@ public sealed record UpdateClassCommand(
     string Title,
     int MaxStudents,
     Modality Modality,
-    Guid? TeacherUserId) : IRequest<Result<ClassDto>>;
+    Guid? TeacherUserId,
+    string? GroupType = null) : IRequest<Result<ClassDto>>;
+
+/// <summary>The distinct group types already in use, plus the built-in defaults —
+/// the admin group-type picker's option list (supports custom entries).</summary>
+public sealed record GetGroupTypesQuery : IRequest<Result<IReadOnlyCollection<string>>>;
 
 public sealed record CancelClassCommand(Guid ClassId) : IRequest<Result>;
 
