@@ -28,6 +28,16 @@ public sealed class StudentProfile : BaseEntity
     // guaranteed to have it set before it's observable.
     public User User { get; private set; } = null!;
 
+    /// <summary>
+    /// Stable, human-friendly public number (spec #13) — assigned by a DB sequence
+    /// on insert, never reused. Rendered as a six-digit id with leading zeros via
+    /// <see cref="PublicId"/> (e.g. 1 → "000001"). Not the primary key.
+    /// </summary>
+    public int PublicNo { get; private set; }
+
+    /// <summary>The six-digit public student id (leading zeros preserved).</summary>
+    public string PublicId => PublicNo.ToString("D6");
+
     public int XP { get; private set; }
     public int Streak { get; private set; }
 

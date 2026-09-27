@@ -24,7 +24,8 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
     IRequestHandler<EnterExamResultCommand, Result<ExamResultDto>>,
     IRequestHandler<PublishExamResultCommand, Result<ExamResultDto>>,
     IRequestHandler<DeleteExamResultCommand, Result>,
-    IRequestHandler<GetStudentExamResultsQuery, Result<IReadOnlyCollection<StudentExamResultDto>>>
+    IRequestHandler<GetStudentExamResultsQuery, Result<IReadOnlyCollection<StudentExamResultDto>>>,
+    IRequestHandler<GetExamResultsTableQuery, Result<ExamResultsTableDto>>
 {
     // ---- config ------------------------------------------------------------
 
@@ -327,6 +328,60 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
             }).ToList();
 
         return Result<IReadOnlyCollection<StudentExamResultDto>>.Ok(dtos);
+    }
+
+    // ---- share-ready results table (spec #13) ------------------------------
+
+    public async Task<Result<ExamResultsTableDto>> Handle(GetExamResultsTableQuery request, CancellationToken ct)
+    {
+        var (exam, code, msg) = await ResolveOwnedExamAsync(request.ExamId, ct, tracking: false);
+        if (exam is null) return Result<ExamResultsTableDto>.Fail(code!, msg!);
+
+        // Map each section to its IELTS paper by Kind.
+        Guid? sectionOf(ExamSectionKind kind) => exam.Sections.Where(s => s.Kind == kind)
+            .OrderBy(s => s.Order).Select(s => (Guid?)s.Id).FirstOrDefault();
+        var listeningId = sectionOf(ExamSectionKind.Listening);
+        var readingId = sectionOf(ExamSectionKind.Reading);
+        var writingId = sectionOf(ExamSectionKind.Writing);
+        var speakingId = sectionOf(ExamSectionKind.Speaking);
+
+        var results = await db.ExamResults.AsNoTracking().Include(r => r.SectionScores)
+            .Where(r => r.ExamId == exam.Id).ToListAsync(ct);
+
+        var studentIds = results.Select(r => r.StudentProfileId).ToList();
+        var publicById = await db.StudentProfiles.AsNoTracking()
+            .Where(sp => studentIds.Contains(sp.Id))
+            .Select(sp => new { sp.Id, sp.PublicNo })
+            .ToDictionaryAsync(x => x.Id, x => x.PublicNo, ct);
+
+        decimal? scoreIn(ExamResult r, Guid? sectionId) => sectionId is { } id
+            ? r.SectionScores.Where(s => s.ExamSectionId == id).Select(s => (decimal?)s.Score).FirstOrDefault()
+            : null;
+
+        var rows = results
+            .Select(r =>
+            {
+                var l = scoreIn(r, listeningId);
+                var rd = scoreIn(r, readingId);
+                var w = scoreIn(r, writingId);
+                var sp = scoreIn(r, speakingId);
+                var overall = OverallBand(l, rd, w, sp);
+                var pid = publicById.TryGetValue(r.StudentProfileId, out var no) ? no.ToString("D6") : "000000";
+                return new ExamResultsRowDto(pid, l, rd, w, sp, overall, r.IsPublished);
+            })
+            .OrderBy(x => x.StudentId, StringComparer.Ordinal)
+            .ToList();
+
+        return Result<ExamResultsTableDto>.Ok(new ExamResultsTableDto(exam.Id, exam.Title, exam.ExamType, rows));
+    }
+
+    /// <summary>IELTS overall band: average of the present section bands, rounded to the nearest 0.5.</summary>
+    private static decimal? OverallBand(params decimal?[] bands)
+    {
+        var present = bands.Where(b => b is not null).Select(b => b!.Value).ToList();
+        if (present.Count == 0) return null;
+        var avg = present.Average();
+        return Math.Round(avg * 2m, MidpointRounding.AwayFromZero) / 2m;
     }
 
     // ---- shared plumbing ---------------------------------------------------

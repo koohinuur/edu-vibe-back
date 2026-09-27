@@ -117,6 +117,13 @@ public sealed class StudentProfileConfiguration : IEntityTypeConfiguration<Stude
         b.ToTable("student_profiles");
         b.HasKey(x => x.Id);
         b.HasIndex(x => x.UserId).IsUnique();
+        // Public six-digit id (spec #13) — filled by a Postgres sequence default on
+        // insert; EF reads it back. Ignore the computed display-only PublicId.
+        b.Property(x => x.PublicNo)
+            .HasDefaultValueSql("nextval('student_public_no_seq')")
+            .ValueGeneratedOnAdd();
+        b.HasIndex(x => x.PublicNo).IsUnique();
+        b.Ignore(x => x.PublicId);
         b.HasOne(x => x.User).WithOne(x => x.StudentProfile).HasForeignKey<StudentProfile>(x => x.UserId)
             .OnDelete(DeleteBehavior.Restrict);
     }
