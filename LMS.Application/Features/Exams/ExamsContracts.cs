@@ -88,6 +88,19 @@ public sealed record SectionResponseInputDto(Guid ExamSectionId, string? Respons
 public sealed record ExamAttemptDto(
     Guid Id, Guid ExamId, Guid StudentProfileId, DateTime StartedAt, DateTime? SubmittedAt);
 
+/// <summary>One section's answer, for the teacher reviewing a student's sitting.</summary>
+public sealed record StudentAttemptResponseDto(
+    Guid ExamSectionId, string SectionName, ExamSectionKind Kind, string? ResponseText, decimal? SelfScore);
+
+/// <summary>A student's sitting of an exam, for teacher review (null attempt = not taken yet).</summary>
+public sealed record StudentAttemptDto(
+    Guid? AttemptId, DateTime? StartedAt, DateTime? SubmittedAt,
+    IReadOnlyCollection<StudentAttemptResponseDto> Responses);
+
+/// <summary>Read a student's attempt (writing answers) for grading. Staff-only.</summary>
+public sealed record GetStudentExamAttemptQuery(Guid ExamId, Guid StudentProfileId)
+    : IRequest<Result<StudentAttemptDto>>;
+
 public sealed record SectionScoreInputDto(Guid ExamSectionId, decimal Score, string? Feedback = null);
 
 // ---- commands / queries ----------------------------------------------------

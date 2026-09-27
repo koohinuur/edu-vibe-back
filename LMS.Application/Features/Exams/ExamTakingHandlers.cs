@@ -18,7 +18,8 @@ namespace LMS.Application.Features.Exams;
 public sealed class ExamTakingHandlers(IApplicationDbContext db, ICurrentUserService currentUser) :
     IRequestHandler<GetExamForTakingQuery, Result<TakeExamDto>>,
     IRequestHandler<StartExamAttemptCommand, Result<ExamAttemptDto>>,
-    IRequestHandler<SubmitExamAttemptCommand, Result<ExamAttemptDto>>
+    IRequestHandler<SubmitExamAttemptCommand, Result<ExamAttemptDto>>,
+    IRequestHandler<GetStudentExamAttemptQuery, Result<StudentAttemptDto>>
 {
     public async Task<Result<TakeExamDto>> Handle(GetExamForTakingQuery request, CancellationToken ct)
     {
@@ -111,6 +112,37 @@ public sealed class ExamTakingHandlers(IApplicationDbContext db, ICurrentUserSer
         attempt.Submit(DateTime.UtcNow);
         await db.SaveChangesAsync(ct);
         return Result<ExamAttemptDto>.Ok(MapAttempt(attempt));
+    }
+
+    public async Task<Result<StudentAttemptDto>> Handle(GetStudentExamAttemptQuery request, CancellationToken ct)
+    {
+        var exam = await db.Exams.AsNoTracking().FirstOrDefaultAsync(e => e.Id == request.ExamId, ct);
+        if (exam is null) return Result<StudentAttemptDto>.Fail("NOT_FOUND", "Exam not found.");
+        if (!await CanStaffViewAsync(exam.ClassId, ct))
+            return Result<StudentAttemptDto>.Fail("FORBIDDEN", "Only the group's teacher or an admin can review attempts.");
+
+        var attempt = await db.ExamAttempts.AsNoTracking().Include(a => a.Responses)
+            .Where(a => a.ExamId == request.ExamId && a.StudentProfileId == request.StudentProfileId)
+            .OrderByDescending(a => a.StartedAt)
+            .FirstOrDefaultAsync(ct);
+        if (attempt is null)
+            return Result<StudentAttemptDto>.Ok(new StudentAttemptDto(null, null, null, []));
+
+        var sections = await db.ExamSections.AsNoTracking()
+            .Where(s => s.ExamId == request.ExamId)
+            .Select(s => new { s.Id, s.Name, s.Kind })
+            .ToListAsync(ct);
+        var sectionById = sections.ToDictionary(s => s.Id);
+
+        var responses = attempt.Responses
+            .Where(r => sectionById.ContainsKey(r.ExamSectionId))
+            .Select(r => new StudentAttemptResponseDto(
+                r.ExamSectionId, sectionById[r.ExamSectionId].Name, sectionById[r.ExamSectionId].Kind,
+                r.ResponseText, r.SelfScore))
+            .ToList();
+
+        return Result<StudentAttemptDto>.Ok(new StudentAttemptDto(
+            attempt.Id, attempt.StartedAt, attempt.SubmittedAt, responses));
     }
 
     // ----- helpers ---------------------------------------------------------
