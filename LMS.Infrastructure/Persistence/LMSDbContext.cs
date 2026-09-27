@@ -50,6 +50,7 @@ public sealed class LMSDbContext : DbContext, IApplicationDbContext
     public DbSet<CurriculumModule> CurriculumModules => Set<CurriculumModule>();
     public DbSet<CurriculumUnit> CurriculumUnits => Set<CurriculumUnit>();
     public DbSet<CurriculumLesson> CurriculumLessons => Set<CurriculumLesson>();
+    public DbSet<CurriculumLessonMaterial> CurriculumLessonMaterials => Set<CurriculumLessonMaterial>();
     public DbSet<CurriculumPlanDay> CurriculumPlanDays => Set<CurriculumPlanDay>();
     public DbSet<CurriculumPlanDayLesson> CurriculumPlanDayLessons => Set<CurriculumPlanDayLesson>();
     public DbSet<LessonDefaultTask> LessonDefaultTasks => Set<LessonDefaultTask>();

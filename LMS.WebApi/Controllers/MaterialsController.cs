@@ -149,7 +149,8 @@ public sealed class MaterialsController(
             form.File.ContentType,
             form.File.Length,
             uid,
-            classIds), ct);
+            classIds,
+            form.CurriculumTemplateId), ct);
 
         if (!r.Success)
         {
@@ -227,6 +228,8 @@ public sealed class UploadMaterialForm
     public string? Description { get; set; }
     public string? Visibility { get; set; }
     public string? ClassIds { get; set; }
+    /// <summary>Optional course (curriculum template) this material belongs to (spec #9).</summary>
+    public Guid? CurriculumTemplateId { get; set; }
     public IFormFile? File { get; set; }
 }
 
