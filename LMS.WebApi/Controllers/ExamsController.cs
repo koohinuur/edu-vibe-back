@@ -67,6 +67,15 @@ public sealed class ExamsController(ISender sender) : ControllerBase
         Guid id, Guid studentProfileId, CancellationToken ct)
         => Respond(await sender.Send(new DeleteExamResultCommand(id, studentProfileId), ct));
 
+    public sealed record PublishBody(bool Publish);
+
+    /// <summary>Publish (or hide) one student's result — the spec #12 visibility gate.</summary>
+    [HttpPost("{id:guid}/results/{studentProfileId:guid}/publish")]
+    [PermissionAuthorize(Permissions.Exams.Manage)]
+    public async Task<ActionResult<ApiResponse<ExamResultDto>>> PublishResult(
+        Guid id, Guid studentProfileId, [FromBody] PublishBody body, CancellationToken ct)
+        => Respond(await sender.Send(new PublishExamResultCommand(id, studentProfileId, body.Publish), ct));
+
     /// <summary>A student's exam results for the profile view (self-scoped in the handler).</summary>
     [HttpGet("student/{studentProfileId:guid}/results")]
     [PermissionAuthorize(Permissions.Exams.Read)]
