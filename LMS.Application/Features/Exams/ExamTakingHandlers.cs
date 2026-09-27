@@ -19,7 +19,8 @@ public sealed class ExamTakingHandlers(IApplicationDbContext db, ICurrentUserSer
     IRequestHandler<GetExamForTakingQuery, Result<TakeExamDto>>,
     IRequestHandler<StartExamAttemptCommand, Result<ExamAttemptDto>>,
     IRequestHandler<SubmitExamAttemptCommand, Result<ExamAttemptDto>>,
-    IRequestHandler<GetStudentExamAttemptQuery, Result<StudentAttemptDto>>
+    IRequestHandler<GetStudentExamAttemptQuery, Result<StudentAttemptDto>>,
+    IRequestHandler<GetMyExamsQuery, Result<IReadOnlyCollection<MyExamDto>>>
 {
     public async Task<Result<TakeExamDto>> Handle(GetExamForTakingQuery request, CancellationToken ct)
     {
@@ -143,6 +144,41 @@ public sealed class ExamTakingHandlers(IApplicationDbContext db, ICurrentUserSer
 
         return Result<StudentAttemptDto>.Ok(new StudentAttemptDto(
             attempt.Id, attempt.StartedAt, attempt.SubmittedAt, responses));
+    }
+
+    public async Task<Result<IReadOnlyCollection<MyExamDto>>> Handle(GetMyExamsQuery request, CancellationToken ct)
+    {
+        if (currentUser.StudentProfileId is not { } spid)
+            return Result<IReadOnlyCollection<MyExamDto>>.Ok([]);
+
+        var classIds = await db.Enrollments.AsNoTracking()
+            .Where(e => e.StudentProfileId == spid && e.Status == EnrollmentStatus.Active)
+            .Select(e => e.ClassId).Distinct().ToListAsync(ct);
+        if (classIds.Count == 0) return Result<IReadOnlyCollection<MyExamDto>>.Ok([]);
+
+        var exams = await db.Exams.AsNoTracking()
+            .Where(e => classIds.Contains(e.ClassId))
+            .Select(e => new
+            {
+                e.Id, e.Title, e.ExamType, e.ClassId,
+                ClassTitle = db.Classes.Where(c => c.Id == e.ClassId).Select(c => c.Title).FirstOrDefault(),
+                SectionCount = db.ExamSections.Count(s => s.ExamId == e.Id),
+                Attempt = db.ExamAttempts.Where(a => a.ExamId == e.Id && a.StudentProfileId == spid)
+                    .OrderByDescending(a => a.StartedAt)
+                    .Select(a => new { a.Id, a.SubmittedAt }).FirstOrDefault(),
+                HasPublishedResult = db.ExamResults.Any(r => r.ExamId == e.Id
+                    && r.StudentProfileId == spid && r.IsPublished),
+            })
+            .ToListAsync(ct);
+
+        var dtos = exams
+            .OrderBy(e => e.ClassTitle).ThenBy(e => e.Title)
+            .Select(e => new MyExamDto(
+                e.Id, e.Title, e.ExamType, e.ClassId, e.ClassTitle, e.SectionCount,
+                e.Attempt is not null, e.Attempt?.SubmittedAt is not null, e.HasPublishedResult))
+            .ToList();
+
+        return Result<IReadOnlyCollection<MyExamDto>>.Ok(dtos);
     }
 
     // ----- helpers ---------------------------------------------------------

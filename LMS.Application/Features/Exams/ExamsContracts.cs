@@ -101,6 +101,14 @@ public sealed record StudentAttemptDto(
 public sealed record GetStudentExamAttemptQuery(Guid ExamId, Guid StudentProfileId)
     : IRequest<Result<StudentAttemptDto>>;
 
+/// <summary>An exam the signed-in student can take, with their progress + result state.</summary>
+public sealed record MyExamDto(
+    Guid ExamId, string Title, string? ExamType, Guid ClassId, string? ClassTitle,
+    int SectionCount, bool HasAttempt, bool IsSubmitted, bool HasPublishedResult);
+
+/// <summary>The signed-in student's exams across their enrolled classes.</summary>
+public sealed record GetMyExamsQuery : IRequest<Result<IReadOnlyCollection<MyExamDto>>>;
+
 public sealed record SectionScoreInputDto(Guid ExamSectionId, decimal Score, string? Feedback = null);
 
 // ---- commands / queries ----------------------------------------------------

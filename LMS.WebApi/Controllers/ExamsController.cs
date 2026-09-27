@@ -85,6 +85,12 @@ public sealed class ExamsController(ISender sender) : ControllerBase
 
     // ---- taking (student sitting the exam, E2) -----------------------------
 
+    /// <summary>The signed-in student's exams across their enrolled classes.</summary>
+    [HttpGet("mine")]
+    [PermissionAuthorize(Permissions.Exams.Read)]
+    public async Task<ActionResult<ApiResponse<IReadOnlyCollection<MyExamDto>>>> Mine(CancellationToken ct)
+        => Respond(await sender.Send(new GetMyExamsQuery(), ct));
+
     /// <summary>The exam in IELTS format for the enrolled student to take (self-scoped).</summary>
     [HttpGet("{id:guid}/take")]
     [PermissionAuthorize(Permissions.Exams.Read)]
