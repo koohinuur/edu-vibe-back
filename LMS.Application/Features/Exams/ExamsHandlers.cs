@@ -349,10 +349,16 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
             .Where(r => r.ExamId == exam.Id).ToListAsync(ct);
 
         var studentIds = results.Select(r => r.StudentProfileId).ToList();
-        var publicById = await db.StudentProfiles.AsNoTracking()
-            .Where(sp => studentIds.Contains(sp.Id))
-            .Select(sp => new { sp.Id, sp.PublicNo })
-            .ToDictionaryAsync(x => x.Id, x => x.PublicNo, ct);
+        var nameById = await (
+            from sp in db.StudentProfiles.AsNoTracking()
+            join u in db.Users on sp.UserId equals u.Id
+            where studentIds.Contains(sp.Id)
+            select new { sp.Id, sp.FirstName, sp.LastName, u.Email })
+            .ToDictionaryAsync(
+                x => x.Id,
+                x => string.Join(" ", new[] { x.FirstName, x.LastName }.Where(s => !string.IsNullOrWhiteSpace(s))).Trim() is { Length: > 0 } full
+                    ? full : (x.Email ?? "Student"),
+                ct);
 
         decimal? scoreIn(ExamResult r, Guid? sectionId) => sectionId is { } id
             ? r.SectionScores.Where(s => s.ExamSectionId == id).Select(s => (decimal?)s.Score).FirstOrDefault()
@@ -366,10 +372,10 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
                 var w = scoreIn(r, writingId);
                 var sp = scoreIn(r, speakingId);
                 var overall = OverallBand(l, rd, w, sp);
-                var pid = publicById.TryGetValue(r.StudentProfileId, out var no) ? no.ToString("D6") : "000000";
-                return new ExamResultsRowDto(pid, l, rd, w, sp, overall, r.IsPublished);
+                var name = nameById.TryGetValue(r.StudentProfileId, out var n) ? n : "Student";
+                return new ExamResultsRowDto(name, l, rd, w, sp, overall, r.IsPublished);
             })
-            .OrderBy(x => x.StudentId, StringComparer.Ordinal)
+            .OrderBy(x => x.StudentName, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         return Result<ExamResultsTableDto>.Ok(new ExamResultsTableDto(exam.Id, exam.Title, exam.ExamType, rows));
