@@ -83,6 +83,29 @@ public sealed class ExamsController(ISender sender) : ControllerBase
         Guid studentProfileId, CancellationToken ct)
         => Respond(await sender.Send(new GetStudentExamResultsQuery(studentProfileId), ct));
 
+    // ---- taking (student sitting the exam, E2) -----------------------------
+
+    /// <summary>The exam in IELTS format for the enrolled student to take (self-scoped).</summary>
+    [HttpGet("{id:guid}/take")]
+    [PermissionAuthorize(Permissions.Exams.Read)]
+    public async Task<ActionResult<ApiResponse<TakeExamDto>>> Take(Guid id, CancellationToken ct)
+        => Respond(await sender.Send(new GetExamForTakingQuery(id), ct));
+
+    /// <summary>Start (or resume) the caller's attempt.</summary>
+    [HttpPost("{id:guid}/attempt/start")]
+    [PermissionAuthorize(Permissions.Exams.Read)]
+    public async Task<ActionResult<ApiResponse<ExamAttemptDto>>> StartAttempt(Guid id, CancellationToken ct)
+        => Respond(await sender.Send(new StartExamAttemptCommand(id), ct));
+
+    public sealed record SubmitAttemptBody(IReadOnlyCollection<SectionResponseInputDto> Responses);
+
+    /// <summary>Save the caller's responses and submit the attempt.</summary>
+    [HttpPost("{id:guid}/attempt/submit")]
+    [PermissionAuthorize(Permissions.Exams.Read)]
+    public async Task<ActionResult<ApiResponse<ExamAttemptDto>>> SubmitAttempt(
+        Guid id, [FromBody] SubmitAttemptBody body, CancellationToken ct)
+        => Respond(await sender.Send(new SubmitExamAttemptCommand(id, body.Responses ?? []), ct));
+
     // ---- response mapping --------------------------------------------------
 
     private static int StatusFor(string? errorCode) => errorCode switch

@@ -1,11 +1,16 @@
 using LMS.Application.Common.Models;
+using LMS.Domain.Enums;
 using MediatR;
 
 namespace LMS.Application.Features.Exams;
 
 // ---- read DTOs -------------------------------------------------------------
 
-public sealed record ExamSectionDto(Guid Id, string Name, decimal MaxScore, int Order);
+/// <summary>Section metadata for config/lists. HasContent avoids shipping the full HTML here.</summary>
+public sealed record ExamSectionDto(
+    Guid Id, string Name, decimal MaxScore, int Order,
+    ExamSectionKind Kind = ExamSectionKind.Generic,
+    string? Prompt = null, string? AudioUrl = null, int? DurationMinutes = null, bool HasContent = false);
 
 public sealed record ExamDto(
     Guid Id,
@@ -58,7 +63,30 @@ public sealed record StudentExamResultDto(
 // ---- write DTOs ------------------------------------------------------------
 
 /// <summary>A requested section in a create/update. Id null = new section.</summary>
-public sealed record ExamSectionInputDto(Guid? Id, string Name, decimal MaxScore, int Order);
+public sealed record ExamSectionInputDto(
+    Guid? Id, string Name, decimal MaxScore, int Order,
+    ExamSectionKind Kind = ExamSectionKind.Generic,
+    string? ContentHtml = null, string? AudioUrl = null, string? Prompt = null, int? DurationMinutes = null);
+
+// ---- taking DTOs (student sitting the exam) --------------------------------
+
+/// <summary>One section as the student takes it — carries the full HTML/prompt/audio.</summary>
+public sealed record TakeExamSectionDto(
+    Guid Id, string Name, int Order, ExamSectionKind Kind,
+    string? ContentHtml, string? AudioUrl, string? Prompt, int? DurationMinutes,
+    string? SavedResponse);
+
+/// <summary>The exam the student is taking, plus their attempt state.</summary>
+public sealed record TakeExamDto(
+    Guid ExamId, string Title, string? ExamType,
+    Guid? AttemptId, DateTime? StartedAt, bool IsSubmitted,
+    IReadOnlyCollection<TakeExamSectionDto> Sections);
+
+/// <summary>A student's answer to one section at submit time.</summary>
+public sealed record SectionResponseInputDto(Guid ExamSectionId, string? ResponseText, decimal? SelfScore);
+
+public sealed record ExamAttemptDto(
+    Guid Id, Guid ExamId, Guid StudentProfileId, DateTime StartedAt, DateTime? SubmittedAt);
 
 public sealed record SectionScoreInputDto(Guid ExamSectionId, decimal Score, string? Feedback = null);
 
@@ -101,3 +129,15 @@ public sealed record PublishExamResultCommand(Guid ExamId, Guid StudentProfileId
 
 public sealed record GetStudentExamResultsQuery(Guid StudentProfileId)
     : IRequest<Result<IReadOnlyCollection<StudentExamResultDto>>>;
+
+// ---- taking commands / queries ---------------------------------------------
+
+/// <summary>The exam an enrolled student is taking (content + their attempt state).</summary>
+public sealed record GetExamForTakingQuery(Guid ExamId) : IRequest<Result<TakeExamDto>>;
+
+/// <summary>Starts (or resumes) the caller's attempt at an exam. Idempotent.</summary>
+public sealed record StartExamAttemptCommand(Guid ExamId) : IRequest<Result<ExamAttemptDto>>;
+
+/// <summary>Saves the caller's per-section responses and submits their attempt.</summary>
+public sealed record SubmitExamAttemptCommand(
+    Guid ExamId, IReadOnlyCollection<SectionResponseInputDto> Responses) : IRequest<Result<ExamAttemptDto>>;

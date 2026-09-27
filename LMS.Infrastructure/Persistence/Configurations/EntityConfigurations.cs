@@ -1064,8 +1064,41 @@ public sealed class ExamSectionConfiguration : IEntityTypeConfiguration<ExamSect
         b.HasKey(x => x.Id);
         b.Property(x => x.Name).IsRequired().HasMaxLength(128);
         b.Property(x => x.MaxScore).HasPrecision(9, 2);
+        // IELTS take-content (E2). HTML can be large → unbounded text column.
+        b.Property(x => x.ContentHtml).HasColumnType("text");
+        b.Property(x => x.AudioUrl).HasMaxLength(1024);
+        b.Property(x => x.Prompt).HasColumnType("text");
         b.HasIndex(x => new { x.ExamId, x.Order });
         b.HasOne(x => x.Exam).WithMany(e => e.Sections).HasForeignKey(x => x.ExamId)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+public sealed class ExamAttemptConfiguration : IEntityTypeConfiguration<ExamAttempt>
+{
+    public void Configure(EntityTypeBuilder<ExamAttempt> b)
+    {
+        b.ToTable("exam_attempts");
+        b.HasKey(x => x.Id);
+        b.HasIndex(x => new { x.ExamId, x.StudentProfileId });
+        b.HasOne(x => x.Exam).WithMany().HasForeignKey(x => x.ExamId).OnDelete(DeleteBehavior.Cascade);
+        b.HasOne(x => x.StudentProfile).WithMany().HasForeignKey(x => x.StudentProfileId)
+            .OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+public sealed class ExamSectionResponseConfiguration : IEntityTypeConfiguration<ExamSectionResponse>
+{
+    public void Configure(EntityTypeBuilder<ExamSectionResponse> b)
+    {
+        b.ToTable("exam_section_responses");
+        b.HasKey(x => x.Id);
+        b.Property(x => x.ResponseText).HasColumnType("text");
+        b.Property(x => x.SelfScore).HasPrecision(9, 2);
+        b.HasIndex(x => new { x.ExamAttemptId, x.ExamSectionId }).IsUnique();
+        b.HasOne(x => x.ExamAttempt).WithMany(a => a.Responses).HasForeignKey(x => x.ExamAttemptId)
+            .OnDelete(DeleteBehavior.Cascade);
+        b.HasOne(x => x.ExamSection).WithMany().HasForeignKey(x => x.ExamSectionId)
             .OnDelete(DeleteBehavior.Cascade);
     }
 }
