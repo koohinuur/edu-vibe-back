@@ -97,6 +97,12 @@ public sealed class ExamsController(ISender sender) : ControllerBase
     public async Task<ActionResult<ApiResponse<TakeExamDto>>> Take(Guid id, CancellationToken ct)
         => Respond(await sender.Send(new GetExamForTakingQuery(id), ct));
 
+    /// <summary>The share-ready results table (Student ID · L · R · W · S · Overall) for an exam.</summary>
+    [HttpGet("{id:guid}/results-table")]
+    [PermissionAuthorize(Permissions.Exams.Manage)]
+    public async Task<ActionResult<ApiResponse<ExamResultsTableDto>>> ResultsTable(Guid id, CancellationToken ct)
+        => Respond(await sender.Send(new GetExamResultsTableQuery(id), ct));
+
     /// <summary>A student's attempt (their written answers) for teacher review.</summary>
     [HttpGet("{id:guid}/attempt/{studentProfileId:guid}")]
     [PermissionAuthorize(Permissions.Exams.Manage)]

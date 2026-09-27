@@ -109,6 +109,19 @@ public sealed record MyExamDto(
 /// <summary>The signed-in student's exams across their enrolled classes.</summary>
 public sealed record GetMyExamsQuery : IRequest<Result<IReadOnlyCollection<MyExamDto>>>;
 
+// ---- share-ready results table (spec #13) ----------------------------------
+
+/// <summary>One student's row in the results table — by full name.</summary>
+public sealed record ExamResultsRowDto(
+    string StudentName, decimal? Listening, decimal? Reading, decimal? Writing, decimal? Speaking, decimal? Overall, bool Published);
+
+/// <summary>An exam's results as a band table keyed by student name.</summary>
+public sealed record ExamResultsTableDto(
+    Guid ExamId, string Title, string? ExamType, IReadOnlyCollection<ExamResultsRowDto> Rows);
+
+/// <summary>The results table for an exam (Student · L · R · W · S · Overall). Staff-only.</summary>
+public sealed record GetExamResultsTableQuery(Guid ExamId) : IRequest<Result<ExamResultsTableDto>>;
+
 public sealed record SectionScoreInputDto(Guid ExamSectionId, decimal Score, string? Feedback = null);
 
 // ---- commands / queries ----------------------------------------------------
