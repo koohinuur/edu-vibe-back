@@ -22,7 +22,8 @@ public sealed class CourseMaterialsHandlers(IApplicationDbContext db, ICurrentUs
     IRequestHandler<GetLessonMaterialsQuery, Result<IReadOnlyCollection<LessonMaterialDto>>>,
     IRequestHandler<GetCourseMaterialsQuery, Result<IReadOnlyCollection<CourseMaterialDto>>>,
     IRequestHandler<AttachLessonMaterialCommand, Result<LessonMaterialDto>>,
-    IRequestHandler<DetachLessonMaterialCommand, Result<bool>>
+    IRequestHandler<DetachLessonMaterialCommand, Result<bool>>,
+    IRequestHandler<GetClassLessonMaterialsQuery, Result<ClassLessonMaterialsDto>>
 {
     public async Task<Result<IReadOnlyCollection<LessonMaterialDto>>> Handle(
         GetLessonMaterialsQuery request, CancellationToken ct)
@@ -106,6 +107,44 @@ public sealed class CourseMaterialsHandlers(IApplicationDbContext db, ICurrentUs
             await db.SaveChangesAsync(ct);
         }
         return Result<bool>.Ok(true);
+    }
+
+    public async Task<Result<ClassLessonMaterialsDto>> Handle(GetClassLessonMaterialsQuery request, CancellationToken ct)
+    {
+        var cls = await db.Classes.AsNoTracking()
+            .Where(c => c.Id == request.ClassId)
+            .Select(c => new { c.Id, c.Title, c.CurriculumTemplateId })
+            .FirstOrDefaultAsync(ct);
+        if (cls is null) return Result<ClassLessonMaterialsDto>.Fail("NOT_FOUND", "Class not found.");
+        if (cls.CurriculumTemplateId is not { } templateId)
+            return Result<ClassLessonMaterialsDto>.Ok(new ClassLessonMaterialsDto(cls.Id, cls.Title, []));
+        if (!await CanViewCourseAsync(templateId, ct))
+            return Result<ClassLessonMaterialsDto>.Fail("FORBIDDEN", "You can't view this class's lessons.");
+
+        // Lessons of the class's course that have at least one attached material.
+        var items = await (
+            from lm in db.CurriculumLessonMaterials
+            join m in db.Materials on lm.MaterialId equals m.Id
+            join l in db.CurriculumLessons on lm.CurriculumLessonId equals l.Id
+            join u in db.CurriculumUnits on l.UnitId equals u.Id
+            join mod in db.CurriculumModules on u.ModuleId equals mod.Id
+            where mod.TemplateId == templateId
+            orderby u.Order, l.Order, lm.Section, lm.Order
+            select new
+            {
+                l.Id, LessonTitle = l.Title, LessonOrder = l.Order, UnitOrder = u.Order,
+                Item = new ClassLessonMaterialItemDto(
+                    m.Id, m.Title, m.OriginalFileName, m.MimeType, m.FileSize, lm.Section, lm.Order),
+            }).ToListAsync(ct);
+
+        var lessons = items
+            .GroupBy(x => new { x.Id, x.LessonTitle, x.LessonOrder, x.UnitOrder })
+            .OrderBy(g => g.Key.UnitOrder).ThenBy(g => g.Key.LessonOrder)
+            .Select(g => new ClassLessonDto(
+                g.Key.Id, g.Key.LessonTitle, g.Key.LessonOrder, g.Select(x => x.Item).ToList()))
+            .ToList();
+
+        return Result<ClassLessonMaterialsDto>.Ok(new ClassLessonMaterialsDto(cls.Id, cls.Title, lessons));
     }
 
     // ----- helpers ---------------------------------------------------------

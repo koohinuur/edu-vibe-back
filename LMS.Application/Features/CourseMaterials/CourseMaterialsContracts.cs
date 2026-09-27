@@ -40,3 +40,23 @@ public sealed record AttachLessonMaterialCommand(Guid CurriculumLessonId, Guid M
 /// <summary>Remove a material from a lesson's section.</summary>
 public sealed record DetachLessonMaterialCommand(Guid CurriculumLessonId, Guid MaterialId, LessonMaterialSection Section)
     : IRequest<Result<bool>>;
+
+// ---- lesson-based navigation (spec #10) ------------------------------------
+
+public sealed record ClassLessonMaterialItemDto(
+    Guid MaterialId, string Title, string OriginalFileName, string MimeType, long FileSize,
+    LessonMaterialSection Section, int Order);
+
+public sealed record ClassLessonDto(
+    Guid LessonId, string Title, int Order, IReadOnlyCollection<ClassLessonMaterialItemDto> Materials);
+
+public sealed record ClassLessonMaterialsDto(
+    Guid ClassId, string? ClassTitle, IReadOnlyCollection<ClassLessonDto> Lessons);
+
+/// <summary>
+/// A class's lessons with their attached materials, grouped by lesson then section
+/// (spec #10). For lesson-based navigation — accessible to the class's teacher(s),
+/// an admin, or an enrolled student.
+/// </summary>
+public sealed record GetClassLessonMaterialsQuery(Guid ClassId)
+    : IRequest<Result<ClassLessonMaterialsDto>>;

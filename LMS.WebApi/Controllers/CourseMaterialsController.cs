@@ -18,6 +18,12 @@ namespace LMS.WebApi.Controllers;
 [Authorize]
 public sealed class CourseMaterialsController(ISender sender) : ControllerBase
 {
+    /// <summary>A class's lessons with their materials grouped by section (spec #10).</summary>
+    [HttpGet("class/{classId:guid}/lessons")]
+    public async Task<ActionResult<ApiResponse<ClassLessonMaterialsDto>>> ClassLessons(
+        Guid classId, CancellationToken ct)
+        => (await sender.Send(new GetClassLessonMaterialsQuery(classId), ct)).ToApiResult();
+
     /// <summary>All materials attached to a lesson (any section), for the lesson view.</summary>
     [HttpGet("lesson/{lessonId:guid}")]
     public async Task<ActionResult<ApiResponse<IReadOnlyCollection<LessonMaterialDto>>>> LessonMaterials(
