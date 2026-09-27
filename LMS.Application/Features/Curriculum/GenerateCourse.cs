@@ -1,5 +1,6 @@
 using LMS.Application.Common.Abstractions;
 using LMS.Application.Common.Models;
+using LMS.Application.Common.Security;
 using LMS.Application.Features.Sessions;
 using LMS.Application.Features.Tasks;
 using LMS.Domain.Enums;
@@ -54,8 +55,10 @@ public sealed class GenerateCourseHandler(
         {
         var cls = await db.Classes.FirstOrDefaultAsync(c => c.Id == request.ClassId, ct);
         if (cls is null) return Result<GenerateCourseResultDto>.Fail("NOT_FOUND", "Class not found.");
-        if (!await CurriculumAuthorization.CanManageClassAsync(db, currentUser, cls.Id, ct))
-            return Result<GenerateCourseResultDto>.Fail("FORBIDDEN", "Only the class teacher or an admin can set up this class's course.");
+        // SECURITY (spec #8): one-click setup binds a template to the group (assigns
+        // its curriculum) — an admin decision. Teachers run the generated course.
+        if (!currentUser.IsAdmin())
+            return Result<GenerateCourseResultDto>.Fail("FORBIDDEN", "Only an admin can set up this group's curriculum.");
 
         var template = await db.CurriculumTemplates.AsNoTracking()
             .FirstOrDefaultAsync(t => t.Id == request.TemplateId, ct);
