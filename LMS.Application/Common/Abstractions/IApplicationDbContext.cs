@@ -32,6 +32,8 @@ public interface IApplicationDbContext
     DbSet<ExamSection> ExamSections { get; }
     DbSet<ExamResult> ExamResults { get; }
     DbSet<ExamSectionScore> ExamSectionScores { get; }
+    DbSet<ExamAttempt> ExamAttempts { get; }
+    DbSet<ExamSectionResponse> ExamSectionResponses { get; }
     DbSet<Enrollment> Enrollments { get; }
     DbSet<ClassSession> ClassSessions { get; }
     DbSet<ClassSessionLesson> ClassSessionLessons { get; }

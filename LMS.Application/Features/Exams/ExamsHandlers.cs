@@ -62,7 +62,11 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
         // GroupType (feat/group-type), so an IELTS group's exam is an IELTS exam.
         exam.SetExamType(request.ExamType);
         foreach (var s in request.Sections)
-            exam.Sections.Add(new ExamSection(exam.Id, s.Name, s.MaxScore, s.Order));
+        {
+            var section = new ExamSection(exam.Id, s.Name, s.MaxScore, s.Order);
+            section.SetContent(s.Kind, s.ContentHtml, s.AudioUrl, s.Prompt, s.DurationMinutes);
+            exam.Sections.Add(section);
+        }
         await db.Exams.AddAsync(exam, ct);
         await db.SaveChangesAsync(ct);
         return Result<ExamDto>.Ok(MapExam(exam), "Exam created.");
@@ -105,11 +109,13 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
                 sec.SetName(s.Name);
                 sec.SetMaxScore(s.MaxScore);
                 sec.SetOrder(s.Order);
+                sec.SetContent(s.Kind, s.ContentHtml, s.AudioUrl, s.Prompt, s.DurationMinutes);
                 keepIds.Add(id);
             }
             else
             {
                 var added = new ExamSection(exam.Id, s.Name, s.MaxScore, s.Order);
+                added.SetContent(s.Kind, s.ContentHtml, s.AudioUrl, s.Prompt, s.DurationMinutes);
                 await db.ExamSections.AddAsync(added, ct);
                 exam.Sections.Add(added);
                 keepIds.Add(added.Id);
@@ -367,7 +373,9 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
     private static ExamDto MapExam(Exam e) => new(
         e.Id, e.ClassId, e.CurriculumLessonId, e.Title, e.PassThresholdPercent, e.EffectiveThresholdPercent,
         e.Sections.OrderBy(s => s.Order)
-            .Select(s => new ExamSectionDto(s.Id, s.Name, s.MaxScore, s.Order)).ToList(),
+            .Select(s => new ExamSectionDto(
+                s.Id, s.Name, s.MaxScore, s.Order,
+                s.Kind, s.Prompt, s.AudioUrl, s.DurationMinutes, s.ContentHtml != null)).ToList(),
         e.ExamType);
 
     private static ExamResultDto MapResult(ExamResult r) => new(
