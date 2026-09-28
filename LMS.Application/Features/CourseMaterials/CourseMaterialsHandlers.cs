@@ -134,7 +134,7 @@ public sealed class CourseMaterialsHandlers(IApplicationDbContext db, ICurrentUs
             {
                 l.Id, LessonTitle = l.Title, LessonOrder = l.Order, UnitOrder = u.Order,
                 Item = new ClassLessonMaterialItemDto(
-                    m.Id, m.Title, m.OriginalFileName, m.MimeType, m.FileSize, lm.Section, lm.Order),
+                    m.Id, m.Title, m.Description, m.OriginalFileName, m.MimeType, m.FileSize, lm.Section, lm.Order),
             }).ToListAsync(ct);
 
         var lessons = items
