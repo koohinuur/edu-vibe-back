@@ -44,7 +44,7 @@ public sealed record DetachLessonMaterialCommand(Guid CurriculumLessonId, Guid M
 // ---- lesson-based navigation (spec #10) ------------------------------------
 
 public sealed record ClassLessonMaterialItemDto(
-    Guid MaterialId, string Title, string OriginalFileName, string MimeType, long FileSize,
+    Guid MaterialId, string Title, string? Description, string OriginalFileName, string MimeType, long FileSize,
     LessonMaterialSection Section, int Order);
 
 public sealed record ClassLessonDto(
