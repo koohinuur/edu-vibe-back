@@ -1067,8 +1067,9 @@ public sealed class ExamConfiguration : IEntityTypeConfiguration<Exam>
         b.Property(x => x.Title).IsRequired().HasMaxLength(256);
         b.Property(x => x.PassThresholdPercent).HasPrecision(5, 2);
         b.Property(x => x.ExamType).HasMaxLength(64);
-        // One exam per exam-type curriculum lesson.
-        b.HasIndex(x => x.CurriculumLessonId).IsUnique();
+        // At most one exam per curriculum lesson — but many standalone (null) exams
+        // per class, so the uniqueness is a partial index over the non-null ids.
+        b.HasIndex(x => x.CurriculumLessonId).IsUnique().HasFilter("\"CurriculumLessonId\" IS NOT NULL");
         b.HasOne(x => x.Class).WithMany().HasForeignKey(x => x.ClassId).OnDelete(DeleteBehavior.Cascade);
         b.HasOne(x => x.CurriculumLesson).WithMany().HasForeignKey(x => x.CurriculumLessonId)
             .OnDelete(DeleteBehavior.Cascade);

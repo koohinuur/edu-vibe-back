@@ -21,19 +21,20 @@ public sealed class Exam : BaseEntity
 {
     private Exam() { }
 
-    public Exam(Guid classId, Guid curriculumLessonId, string title, decimal? passThresholdPercent)
+    public Exam(Guid classId, Guid? curriculumLessonId, string title, decimal? passThresholdPercent)
     {
         if (classId == Guid.Empty) throw new DomainException("Class is required.");
-        if (curriculumLessonId == Guid.Empty) throw new DomainException("Curriculum lesson is required.");
         ClassId = classId;
-        CurriculumLessonId = curriculumLessonId;
+        // Null = a standalone exam (e.g. an IELTS mock) not tied to a curriculum lesson.
+        CurriculumLessonId = curriculumLessonId == Guid.Empty ? null : curriculumLessonId;
         SetTitle(title);
         SetPassThreshold(passThresholdPercent);
     }
 
     public Guid ClassId { get; private set; }
     public Class? Class { get; private set; }
-    public Guid CurriculumLessonId { get; private set; }
+    /// <summary>The exam-type curriculum lesson this exam sits on, or null for a standalone exam.</summary>
+    public Guid? CurriculumLessonId { get; private set; }
     public CurriculumLesson? CurriculumLesson { get; private set; }
 
     public string Title { get; private set; } = null!;
