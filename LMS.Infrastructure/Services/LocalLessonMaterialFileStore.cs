@@ -20,6 +20,7 @@ public sealed class LocalLessonMaterialFileStore : ILessonMaterialFileStore
         ".ppt", ".pptx",
         ".xls", ".xlsx",
         ".txt", ".md", ".csv", ".rtf",
+        ".html", ".htm",
         ".png", ".jpg", ".jpeg", ".webp", ".gif", ".heic", ".svg",
         ".zip", ".rar", ".7z",
         ".mp3", ".wav", ".m4a",
