@@ -15,7 +15,7 @@ public sealed record ExamSectionDto(
 public sealed record ExamDto(
     Guid Id,
     Guid ClassId,
-    Guid CurriculumLessonId,
+    Guid? CurriculumLessonId,
     string Title,
     decimal? PassThresholdPercent,
     decimal EffectiveThresholdPercent,
@@ -128,7 +128,7 @@ public sealed record SectionScoreInputDto(Guid ExamSectionId, decimal Score, str
 
 public sealed record CreateExamCommand(
     Guid ClassId,
-    Guid CurriculumLessonId,
+    Guid? CurriculumLessonId,
     string Title,
     decimal? PassThresholdPercent,
     IReadOnlyCollection<ExamSectionInputDto> Sections,

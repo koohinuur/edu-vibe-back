@@ -41,22 +41,28 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
         var sectionError = ValidateSections(request.Sections);
         if (sectionError is not null) return Result<ExamDto>.Fail("VALIDATION", sectionError);
 
-        var lesson = await db.CurriculumLessons.FirstOrDefaultAsync(l => l.Id == request.CurriculumLessonId, ct);
-        if (lesson is null) return Result<ExamDto>.Fail("NOT_FOUND", "Curriculum lesson not found.");
-        if (lesson.LessonType != CurriculumLessonType.Exam)
-            return Result<ExamDto>.Fail("VALIDATION", "The lesson must be of type Exam.");
+        // A curriculum lesson is OPTIONAL now — with one the exam sits on that
+        // lesson (validated below); without one it's a standalone exam (e.g. an
+        // IELTS mock the teacher builds directly with HTML sections).
+        if (request.CurriculumLessonId is { } lessonId)
+        {
+            var lesson = await db.CurriculumLessons.FirstOrDefaultAsync(l => l.Id == lessonId, ct);
+            if (lesson is null) return Result<ExamDto>.Fail("NOT_FOUND", "Curriculum lesson not found.");
+            if (lesson.LessonType != CurriculumLessonType.Exam)
+                return Result<ExamDto>.Fail("VALIDATION", "The lesson must be of type Exam.");
 
-        // The lesson must live under this class's own curriculum template.
-        var templateId = await (
-            from u in db.CurriculumUnits
-            join m in db.CurriculumModules on u.ModuleId equals m.Id
-            where u.Id == lesson.UnitId
-            select (Guid?)m.TemplateId).FirstOrDefaultAsync(ct);
-        if (templateId is null || cls.CurriculumTemplateId is null || templateId != cls.CurriculumTemplateId)
-            return Result<ExamDto>.Fail("VALIDATION", "The lesson does not belong to this class.");
+            // The lesson must live under this class's own curriculum template.
+            var templateId = await (
+                from u in db.CurriculumUnits
+                join m in db.CurriculumModules on u.ModuleId equals m.Id
+                where u.Id == lesson.UnitId
+                select (Guid?)m.TemplateId).FirstOrDefaultAsync(ct);
+            if (templateId is null || cls.CurriculumTemplateId is null || templateId != cls.CurriculumTemplateId)
+                return Result<ExamDto>.Fail("VALIDATION", "The lesson does not belong to this class.");
 
-        if (await db.Exams.AnyAsync(e => e.CurriculumLessonId == request.CurriculumLessonId, ct))
-            return Result<ExamDto>.Fail("CONFLICT", "An exam already exists for this lesson.");
+            if (await db.Exams.AnyAsync(e => e.CurriculumLessonId == lessonId, ct))
+                return Result<ExamDto>.Fail("CONFLICT", "An exam already exists for this lesson.");
+        }
 
         var exam = new Exam(cls.Id, request.CurriculumLessonId, request.Title, request.PassThresholdPercent);
         // Exam type (spec #11) — the create UI pre-fills it from the group's

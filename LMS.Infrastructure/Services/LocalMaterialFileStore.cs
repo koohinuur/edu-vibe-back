@@ -22,6 +22,7 @@ public sealed class LocalMaterialFileStore : IMaterialFileStore
         ".ppt", ".pptx",
         ".xls", ".xlsx",
         ".txt", ".md", ".csv",
+        ".html", ".htm",
         ".png", ".jpg", ".jpeg", ".webp", ".gif",
         ".mp3", ".m4a", ".wav",
         ".mp4", ".webm", ".mov",
