@@ -1087,7 +1087,9 @@ public sealed class ExamSectionConfiguration : IEntityTypeConfiguration<ExamSect
         // IELTS take-content (E2). HTML can be large → unbounded text column.
         b.Property(x => x.ContentHtml).HasColumnType("text");
         b.Property(x => x.AudioUrl).HasMaxLength(1024);
+        b.Property(x => x.ImageUrl).HasMaxLength(1024);
         b.Property(x => x.Prompt).HasColumnType("text");
+        b.Property(x => x.TasksJson).HasColumnType("text");
         b.HasIndex(x => new { x.ExamId, x.Order });
         b.HasOne(x => x.Exam).WithMany(e => e.Sections).HasForeignKey(x => x.ExamId)
             .OnDelete(DeleteBehavior.Cascade);

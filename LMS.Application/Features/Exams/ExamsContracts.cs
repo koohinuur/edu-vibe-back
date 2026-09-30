@@ -7,10 +7,14 @@ namespace LMS.Application.Features.Exams;
 // ---- read DTOs -------------------------------------------------------------
 
 /// <summary>Section metadata for config/lists. HasContent avoids shipping the full HTML here.</summary>
+/// <summary>One task within a Writing/Speaking section (e.g. IELTS Task 1 / Task 2).</summary>
+public sealed record ExamTaskDto(string Title, string? Prompt, string? ImageUrl);
+
 public sealed record ExamSectionDto(
     Guid Id, string Name, decimal MaxScore, int Order,
     ExamSectionKind Kind = ExamSectionKind.Generic,
-    string? Prompt = null, string? AudioUrl = null, int? DurationMinutes = null, bool HasContent = false);
+    string? Prompt = null, string? AudioUrl = null, int? DurationMinutes = null, bool HasContent = false,
+    string? ImageUrl = null, IReadOnlyList<ExamTaskDto>? Tasks = null);
 
 public sealed record ExamDto(
     Guid Id,
@@ -66,7 +70,8 @@ public sealed record StudentExamResultDto(
 public sealed record ExamSectionInputDto(
     Guid? Id, string Name, decimal MaxScore, int Order,
     ExamSectionKind Kind = ExamSectionKind.Generic,
-    string? ContentHtml = null, string? AudioUrl = null, string? Prompt = null, int? DurationMinutes = null);
+    string? ContentHtml = null, string? AudioUrl = null, string? Prompt = null, int? DurationMinutes = null,
+    string? ImageUrl = null, IReadOnlyList<ExamTaskDto>? Tasks = null);
 
 // ---- taking DTOs (student sitting the exam) --------------------------------
 
@@ -74,7 +79,7 @@ public sealed record ExamSectionInputDto(
 public sealed record TakeExamSectionDto(
     Guid Id, string Name, int Order, ExamSectionKind Kind,
     string? ContentHtml, string? AudioUrl, string? Prompt, int? DurationMinutes,
-    string? SavedResponse);
+    string? SavedResponse, string? ImageUrl = null, IReadOnlyList<ExamTaskDto>? Tasks = null);
 
 /// <summary>The exam the student is taking, plus their attempt state.</summary>
 public sealed record TakeExamDto(
