@@ -111,6 +111,7 @@ public sealed class ExamTakingHandlers(IApplicationDbContext db, ICurrentUserSer
                 attempt.Responses.Add(added);
             }
         }
+        attempt.RecordFocusLosses(request.FocusLossCount);
         attempt.Submit(DateTime.UtcNow);
         await db.SaveChangesAsync(ct);
         return Result<ExamAttemptDto>.Ok(MapAttempt(attempt));
@@ -128,7 +129,7 @@ public sealed class ExamTakingHandlers(IApplicationDbContext db, ICurrentUserSer
             .OrderByDescending(a => a.StartedAt)
             .FirstOrDefaultAsync(ct);
         if (attempt is null)
-            return Result<StudentAttemptDto>.Ok(new StudentAttemptDto(null, null, null, []));
+            return Result<StudentAttemptDto>.Ok(new StudentAttemptDto(null, null, null, [], 0));
 
         var sections = await db.ExamSections.AsNoTracking()
             .Where(s => s.ExamId == request.ExamId)
@@ -144,7 +145,7 @@ public sealed class ExamTakingHandlers(IApplicationDbContext db, ICurrentUserSer
             .ToList();
 
         return Result<StudentAttemptDto>.Ok(new StudentAttemptDto(
-            attempt.Id, attempt.StartedAt, attempt.SubmittedAt, responses));
+            attempt.Id, attempt.StartedAt, attempt.SubmittedAt, responses, attempt.FocusLossCount));
     }
 
     public async Task<Result<IReadOnlyCollection<MyExamDto>>> Handle(GetMyExamsQuery request, CancellationToken ct)
