@@ -118,6 +118,13 @@ public sealed class ExamSection : BaseEntity
     /// </summary>
     public string? ImageUrl { get; private set; }
 
+    /// <summary>
+    /// For Writing/Speaking with multiple tasks (e.g. IELTS Task 1 + Task 2): a JSON
+    /// array of tasks — [{ "title", "prompt", "imageUrl" }]. Null/empty = the section
+    /// is a single task (uses <see cref="Prompt"/> / <see cref="ImageUrl"/>).
+    /// </summary>
+    public string? TasksJson { get; private set; }
+
     /// <summary>Suggested time for this section, in minutes. Null = not set.</summary>
     public int? DurationMinutes { get; private set; }
 
@@ -147,6 +154,15 @@ public sealed class ExamSection : BaseEntity
         ImageUrl = string.IsNullOrWhiteSpace(imageUrl) ? null : imageUrl.Trim();
         if (durationMinutes is < 0) throw new DomainException("Duration can't be negative.");
         DurationMinutes = durationMinutes;
+        Touch();
+    }
+
+    /// <summary>Sets the multi-task JSON ([] / null clears to a single-task section). Max 200 KB.</summary>
+    public void SetTasks(string? tasksJson)
+    {
+        var json = string.IsNullOrWhiteSpace(tasksJson) || tasksJson.Trim() is "[]" ? null : tasksJson.Trim();
+        if (json is { Length: > 200_000 }) throw new DomainException("Too many/large tasks.");
+        TasksJson = json;
         Touch();
     }
 
