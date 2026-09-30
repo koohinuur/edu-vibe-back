@@ -32,7 +32,22 @@ public sealed class ExamAttempt : BaseEntity
     public DateTime? SubmittedAt { get; private set; }
     public bool IsSubmitted => SubmittedAt is not null;
 
+    /// <summary>
+    /// Anti-cheat signal — how many times the student left the exam tab/window
+    /// (tab switch, window blur, or leaving fullscreen) during the sitting. Advisory
+    /// only; surfaced to the teacher on review. 0 = never left focus.
+    /// </summary>
+    public int FocusLossCount { get; private set; }
+
     public ICollection<ExamSectionResponse> Responses { get; } = new List<ExamSectionResponse>();
+
+    /// <summary>Records the client-reported focus-loss tally (never decreases; clamps negatives to 0).</summary>
+    public void RecordFocusLosses(int count)
+    {
+        var safe = count < 0 ? 0 : count;
+        if (safe > FocusLossCount) FocusLossCount = safe;
+        Touch();
+    }
 
     public void Submit(DateTime now)
     {
