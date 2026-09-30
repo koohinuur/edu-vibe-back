@@ -112,6 +112,12 @@ public sealed class ExamSection : BaseEntity
     /// <summary>For Writing/Speaking: the task prompt the student answers. Null = none.</summary>
     public string? Prompt { get; private set; }
 
+    /// <summary>
+    /// For Writing (e.g. IELTS Task 1) / Speaking: an image the student describes —
+    /// a chart, diagram or cue card. URL to the uploaded image. Null = none.
+    /// </summary>
+    public string? ImageUrl { get; private set; }
+
     /// <summary>Suggested time for this section, in minutes. Null = not set.</summary>
     public int? DurationMinutes { get; private set; }
 
@@ -127,7 +133,7 @@ public sealed class ExamSection : BaseEntity
     /// <paramref name="contentHtml"/> is <c>null</c> ⇒ keep the existing HTML (so an
     /// edit that doesn't re-upload preserves it), empty ⇒ clear, non-empty ⇒ replace.
     /// </summary>
-    public void SetContent(ExamSectionKind kind, string? contentHtml, string? audioUrl, string? prompt, int? durationMinutes)
+    public void SetContent(ExamSectionKind kind, string? contentHtml, string? audioUrl, string? prompt, int? durationMinutes, string? imageUrl = null)
     {
         Kind = kind;
         if (contentHtml is not null)
@@ -138,6 +144,7 @@ public sealed class ExamSection : BaseEntity
         }
         AudioUrl = string.IsNullOrWhiteSpace(audioUrl) ? null : audioUrl.Trim();
         Prompt = string.IsNullOrWhiteSpace(prompt) ? null : prompt.Trim();
+        ImageUrl = string.IsNullOrWhiteSpace(imageUrl) ? null : imageUrl.Trim();
         if (durationMinutes is < 0) throw new DomainException("Duration can't be negative.");
         DurationMinutes = durationMinutes;
         Touch();

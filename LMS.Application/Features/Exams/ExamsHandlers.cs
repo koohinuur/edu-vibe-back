@@ -70,7 +70,7 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
         foreach (var s in request.Sections)
         {
             var section = new ExamSection(exam.Id, s.Name, s.MaxScore, s.Order);
-            section.SetContent(s.Kind, s.ContentHtml, s.AudioUrl, s.Prompt, s.DurationMinutes);
+            section.SetContent(s.Kind, s.ContentHtml, s.AudioUrl, s.Prompt, s.DurationMinutes, s.ImageUrl);
             exam.Sections.Add(section);
         }
         await db.Exams.AddAsync(exam, ct);
@@ -115,13 +115,13 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
                 sec.SetName(s.Name);
                 sec.SetMaxScore(s.MaxScore);
                 sec.SetOrder(s.Order);
-                sec.SetContent(s.Kind, s.ContentHtml, s.AudioUrl, s.Prompt, s.DurationMinutes);
+                sec.SetContent(s.Kind, s.ContentHtml, s.AudioUrl, s.Prompt, s.DurationMinutes, s.ImageUrl);
                 keepIds.Add(id);
             }
             else
             {
                 var added = new ExamSection(exam.Id, s.Name, s.MaxScore, s.Order);
-                added.SetContent(s.Kind, s.ContentHtml, s.AudioUrl, s.Prompt, s.DurationMinutes);
+                added.SetContent(s.Kind, s.ContentHtml, s.AudioUrl, s.Prompt, s.DurationMinutes, s.ImageUrl);
                 await db.ExamSections.AddAsync(added, ct);
                 exam.Sections.Add(added);
                 keepIds.Add(added.Id);
@@ -381,7 +381,7 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
         e.Sections.OrderBy(s => s.Order)
             .Select(s => new ExamSectionDto(
                 s.Id, s.Name, s.MaxScore, s.Order,
-                s.Kind, s.Prompt, s.AudioUrl, s.DurationMinutes, s.ContentHtml != null)).ToList(),
+                s.Kind, s.Prompt, s.AudioUrl, s.DurationMinutes, s.ContentHtml != null, s.ImageUrl)).ToList(),
         e.ExamType);
 
     private static ExamResultDto MapResult(ExamResult r) => new(
