@@ -100,7 +100,8 @@ public sealed record StudentAttemptResponseDto(
 /// <summary>A student's sitting of an exam, for teacher review (null attempt = not taken yet).</summary>
 public sealed record StudentAttemptDto(
     Guid? AttemptId, DateTime? StartedAt, DateTime? SubmittedAt,
-    IReadOnlyCollection<StudentAttemptResponseDto> Responses);
+    IReadOnlyCollection<StudentAttemptResponseDto> Responses,
+    int FocusLossCount = 0);
 
 /// <summary>Read a student's attempt (writing answers) for grading. Staff-only.</summary>
 public sealed record GetStudentExamAttemptQuery(Guid ExamId, Guid StudentProfileId)
@@ -179,4 +180,5 @@ public sealed record StartExamAttemptCommand(Guid ExamId) : IRequest<Result<Exam
 
 /// <summary>Saves the caller's per-section responses and submits their attempt.</summary>
 public sealed record SubmitExamAttemptCommand(
-    Guid ExamId, IReadOnlyCollection<SectionResponseInputDto> Responses) : IRequest<Result<ExamAttemptDto>>;
+    Guid ExamId, IReadOnlyCollection<SectionResponseInputDto> Responses,
+    int FocusLossCount = 0) : IRequest<Result<ExamAttemptDto>>;

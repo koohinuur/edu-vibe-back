@@ -116,14 +116,16 @@ public sealed class ExamsController(ISender sender) : ControllerBase
     public async Task<ActionResult<ApiResponse<ExamAttemptDto>>> StartAttempt(Guid id, CancellationToken ct)
         => Respond(await sender.Send(new StartExamAttemptCommand(id), ct));
 
-    public sealed record SubmitAttemptBody(IReadOnlyCollection<SectionResponseInputDto> Responses);
+    public sealed record SubmitAttemptBody(
+        IReadOnlyCollection<SectionResponseInputDto> Responses, int FocusLossCount = 0);
 
     /// <summary>Save the caller's responses and submit the attempt.</summary>
     [HttpPost("{id:guid}/attempt/submit")]
     [PermissionAuthorize(Permissions.Exams.Read)]
     public async Task<ActionResult<ApiResponse<ExamAttemptDto>>> SubmitAttempt(
         Guid id, [FromBody] SubmitAttemptBody body, CancellationToken ct)
-        => Respond(await sender.Send(new SubmitExamAttemptCommand(id, body.Responses ?? []), ct));
+        => Respond(await sender.Send(
+            new SubmitExamAttemptCommand(id, body.Responses ?? [], body.FocusLossCount), ct));
 
     // ---- response mapping --------------------------------------------------
 
