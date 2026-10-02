@@ -1,3 +1,4 @@
+using LMS.Application.Common.Abstractions;
 using LMS.Application.Common.Models;
 using LMS.Application.Common.Security;
 using LMS.Application.Features.Exams;
@@ -18,7 +19,7 @@ namespace LMS.WebApi.Controllers;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
-public sealed class ExamsController(ISender sender) : ControllerBase
+public sealed class ExamsController(ISender sender, ISubmissionFileStore audioStore) : ControllerBase
 {
     [HttpPost]
     [PermissionAuthorize(Permissions.Exams.Manage)]
@@ -115,6 +116,55 @@ public sealed class ExamsController(ISender sender) : ControllerBase
     [PermissionAuthorize(Permissions.Exams.Read)]
     public async Task<ActionResult<ApiResponse<ExamAttemptDto>>> StartAttempt(Guid id, CancellationToken ct)
         => Respond(await sender.Send(new StartExamAttemptCommand(id), ct));
+
+    public sealed record SpeakingAudioResult(string Url);
+
+    /// <summary>
+    /// A student uploads their Speaking cue-card recording. Returns a URL the client
+    /// stores as the section's response; the teacher streams it back on review. The
+    /// blob lives in the private submissions bucket; the download below gates access.
+    /// </summary>
+    [HttpPost("attempt/speaking-audio")]
+    [PermissionAuthorize(Permissions.Exams.Read)]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(25 * 1024 * 1024)]
+    public async Task<ActionResult<ApiResponse<SpeakingAudioResult>>> UploadSpeakingAudio(IFormFile file, CancellationToken ct)
+    {
+        if (file is null || file.Length == 0)
+            return BadRequest(ApiResponse<SpeakingAudioResult>.Fail("Audio is required."));
+        if (file.Length > 25 * 1024 * 1024)
+            return BadRequest(ApiResponse<SpeakingAudioResult>.Fail("Audio exceeds the 25 MB limit."));
+        var mime = file.ContentType ?? "";
+        if (!mime.StartsWith("audio/", StringComparison.OrdinalIgnoreCase))
+            return BadRequest(ApiResponse<SpeakingAudioResult>.Fail("Only audio files are allowed."));
+
+        string storedName;
+        try
+        {
+            await using var stream = file.OpenReadStream();
+            var saved = await audioStore.SaveAsync(stream, file.FileName, mime, ct);
+            storedName = saved.StoredFileName;
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(ApiResponse<SpeakingAudioResult>.Fail(ex.Message));
+        }
+        return Ok(ApiResponse<SpeakingAudioResult>.Ok(
+            new SpeakingAudioResult($"/api/Exams/attempt/speaking-audio/{storedName}")));
+    }
+
+    /// <summary>Streams a Speaking recording. Any exam-reader (the owner student or the
+    /// grading staff); the stored name is an unguessable token. Path-traversal guarded.</summary>
+    [HttpGet("attempt/speaking-audio/{name}")]
+    [PermissionAuthorize(Permissions.Exams.Read)]
+    public async Task<IActionResult> GetSpeakingAudio(string name, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name.Contains('/') || name.Contains('\\') || name.Contains(".."))
+            return BadRequest();
+        var stream = await audioStore.OpenAsync(name, ct);
+        if (stream is null) return NotFound();
+        return File(stream, "audio/webm", enableRangeProcessing: true);
+    }
 
     public sealed record SubmitAttemptBody(
         IReadOnlyCollection<SectionResponseInputDto> Responses, int FocusLossCount = 0);
