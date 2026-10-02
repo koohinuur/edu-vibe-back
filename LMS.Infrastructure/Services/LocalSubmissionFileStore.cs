@@ -24,6 +24,8 @@ public sealed class LocalSubmissionFileStore : ISubmissionFileStore
         ".txt", ".md", ".csv", ".rtf",
         ".png", ".jpg", ".jpeg", ".webp", ".gif", ".heic",
         ".zip", ".rar", ".7z",
+        // Audio — student Speaking cue-card recordings (MediaRecorder output).
+        ".webm", ".ogg", ".mp3", ".m4a", ".wav",
     };
 
     private readonly string _root;

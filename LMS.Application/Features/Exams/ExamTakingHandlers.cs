@@ -49,7 +49,7 @@ public sealed class ExamTakingHandlers(IApplicationDbContext db, ICurrentUserSer
             .Select(s => new TakeExamSectionDto(
                 s.Id, s.Name, s.Order, s.Kind, s.ContentHtml, s.AudioUrl, s.Prompt, s.DurationMinutes,
                 savedBySection.TryGetValue(s.Id, out var saved) ? saved : null, s.ImageUrl,
-                ExamTaskJson.Parse(s.TasksJson)))
+                ExamTaskJson.Parse(s.TasksJson), s.SpeakingMode))
             .ToList();
 
         return Result<TakeExamDto>.Ok(new TakeExamDto(

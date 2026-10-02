@@ -73,6 +73,7 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
             var section = new ExamSection(exam.Id, s.Name, s.MaxScore, s.Order);
             section.SetContent(s.Kind, s.ContentHtml, s.AudioUrl, s.Prompt, s.DurationMinutes, s.ImageUrl);
             section.SetTasks(ExamTaskJson.Serialize(s.Tasks));
+            section.SetSpeakingMode(s.SpeakingMode);
             exam.Sections.Add(section);
         }
         await db.Exams.AddAsync(exam, ct);
@@ -119,6 +120,7 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
                 sec.SetOrder(s.Order);
                 sec.SetContent(s.Kind, s.ContentHtml, s.AudioUrl, s.Prompt, s.DurationMinutes, s.ImageUrl);
                 sec.SetTasks(ExamTaskJson.Serialize(s.Tasks));
+                sec.SetSpeakingMode(s.SpeakingMode);
                 keepIds.Add(id);
             }
             else
@@ -126,6 +128,7 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
                 var added = new ExamSection(exam.Id, s.Name, s.MaxScore, s.Order);
                 added.SetContent(s.Kind, s.ContentHtml, s.AudioUrl, s.Prompt, s.DurationMinutes, s.ImageUrl);
                 added.SetTasks(ExamTaskJson.Serialize(s.Tasks));
+                added.SetSpeakingMode(s.SpeakingMode);
                 await db.ExamSections.AddAsync(added, ct);
                 exam.Sections.Add(added);
                 keepIds.Add(added.Id);
@@ -446,7 +449,7 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
             .Select(s => new ExamSectionDto(
                 s.Id, s.Name, s.MaxScore, s.Order,
                 s.Kind, s.Prompt, s.AudioUrl, s.DurationMinutes, s.ContentHtml != null, s.ImageUrl,
-                ExamTaskJson.Parse(s.TasksJson))).ToList(),
+                ExamTaskJson.Parse(s.TasksJson), s.SpeakingMode)).ToList(),
         e.ExamType);
 
     private static ExamResultDto MapResult(ExamResult r) => new(
