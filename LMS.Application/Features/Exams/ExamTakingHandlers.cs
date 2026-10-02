@@ -102,11 +102,11 @@ public sealed class ExamTakingHandlers(IApplicationDbContext db, ICurrentUserSer
             if (!validSet.Contains(r.ExamSectionId)) continue; // ignore unknown sections
             if (bySection.TryGetValue(r.ExamSectionId, out var existing))
             {
-                existing.SetResponse(r.ResponseText, r.SelfScore);
+                existing.SetResponse(r.ResponseText, r.SelfScore, r.AnswersJson);
             }
             else
             {
-                var added = new ExamSectionResponse(attempt.Id, r.ExamSectionId, r.ResponseText, r.SelfScore);
+                var added = new ExamSectionResponse(attempt.Id, r.ExamSectionId, r.ResponseText, r.SelfScore, r.AnswersJson);
                 await db.ExamSectionResponses.AddAsync(added, ct);
                 attempt.Responses.Add(added);
             }
@@ -141,7 +141,7 @@ public sealed class ExamTakingHandlers(IApplicationDbContext db, ICurrentUserSer
             .Where(r => sectionById.ContainsKey(r.ExamSectionId))
             .Select(r => new StudentAttemptResponseDto(
                 r.ExamSectionId, sectionById[r.ExamSectionId].Name, sectionById[r.ExamSectionId].Kind,
-                r.ResponseText, r.SelfScore))
+                r.ResponseText, r.SelfScore, r.AnswersJson))
             .ToList();
 
         return Result<StudentAttemptDto>.Ok(new StudentAttemptDto(

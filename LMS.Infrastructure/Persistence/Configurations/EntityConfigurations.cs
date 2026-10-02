@@ -1116,6 +1116,7 @@ public sealed class ExamSectionResponseConfiguration : IEntityTypeConfiguration<
         b.ToTable("exam_section_responses");
         b.HasKey(x => x.Id);
         b.Property(x => x.ResponseText).HasColumnType("text");
+        b.Property(x => x.AnswersJson).HasColumnType("text");
         b.Property(x => x.SelfScore).HasPrecision(9, 2);
         b.HasIndex(x => new { x.ExamAttemptId, x.ExamSectionId }).IsUnique();
         b.HasOne(x => x.ExamAttempt).WithMany(a => a.Responses).HasForeignKey(x => x.ExamAttemptId)
