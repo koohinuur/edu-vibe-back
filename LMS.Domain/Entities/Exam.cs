@@ -128,6 +128,13 @@ public sealed class ExamSection : BaseEntity
     /// <summary>Suggested time for this section, in minutes. Null = not set.</summary>
     public int? DurationMinutes { get; private set; }
 
+    /// <summary>
+    /// For a Speaking section: how it's taken — the student records their answer
+    /// (<see cref="SpeakingMode.CueCard"/>, the default) or it's done live on Zoom/Meet
+    /// (<see cref="SpeakingMode.Live"/>). Ignored for other kinds.
+    /// </summary>
+    public SpeakingMode SpeakingMode { get; private set; } = SpeakingMode.CueCard;
+
     public void SetName(string name)
     {
         if (string.IsNullOrWhiteSpace(name)) throw new DomainException("Section name is required.");
@@ -154,6 +161,13 @@ public sealed class ExamSection : BaseEntity
         ImageUrl = string.IsNullOrWhiteSpace(imageUrl) ? null : imageUrl.Trim();
         if (durationMinutes is < 0) throw new DomainException("Duration can't be negative.");
         DurationMinutes = durationMinutes;
+        Touch();
+    }
+
+    /// <summary>Sets how a Speaking section is taken (cue-card recording vs live).</summary>
+    public void SetSpeakingMode(SpeakingMode mode)
+    {
+        SpeakingMode = mode;
         Touch();
     }
 

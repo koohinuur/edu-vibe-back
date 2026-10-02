@@ -14,7 +14,8 @@ public sealed record ExamSectionDto(
     Guid Id, string Name, decimal MaxScore, int Order,
     ExamSectionKind Kind = ExamSectionKind.Generic,
     string? Prompt = null, string? AudioUrl = null, int? DurationMinutes = null, bool HasContent = false,
-    string? ImageUrl = null, IReadOnlyList<ExamTaskDto>? Tasks = null);
+    string? ImageUrl = null, IReadOnlyList<ExamTaskDto>? Tasks = null,
+    SpeakingMode SpeakingMode = SpeakingMode.CueCard);
 
 public sealed record ExamDto(
     Guid Id,
@@ -71,7 +72,8 @@ public sealed record ExamSectionInputDto(
     Guid? Id, string Name, decimal MaxScore, int Order,
     ExamSectionKind Kind = ExamSectionKind.Generic,
     string? ContentHtml = null, string? AudioUrl = null, string? Prompt = null, int? DurationMinutes = null,
-    string? ImageUrl = null, IReadOnlyList<ExamTaskDto>? Tasks = null);
+    string? ImageUrl = null, IReadOnlyList<ExamTaskDto>? Tasks = null,
+    SpeakingMode SpeakingMode = SpeakingMode.CueCard);
 
 // ---- taking DTOs (student sitting the exam) --------------------------------
 
@@ -79,7 +81,8 @@ public sealed record ExamSectionInputDto(
 public sealed record TakeExamSectionDto(
     Guid Id, string Name, int Order, ExamSectionKind Kind,
     string? ContentHtml, string? AudioUrl, string? Prompt, int? DurationMinutes,
-    string? SavedResponse, string? ImageUrl = null, IReadOnlyList<ExamTaskDto>? Tasks = null);
+    string? SavedResponse, string? ImageUrl = null, IReadOnlyList<ExamTaskDto>? Tasks = null,
+    SpeakingMode SpeakingMode = SpeakingMode.CueCard);
 
 /// <summary>The exam the student is taking, plus their attempt state.</summary>
 public sealed record TakeExamDto(
