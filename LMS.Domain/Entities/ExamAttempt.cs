@@ -59,20 +59,22 @@ public sealed class ExamAttempt : BaseEntity
 
 /// <summary>
 /// One section's answer within an <see cref="ExamAttempt"/>: the student's written
-/// response (Writing/Speaking) and/or a self-reported score the HTML test computed
-/// (Listening/Reading). Advisory only — the teacher enters the official band.
+/// response (Writing/Speaking), the score the HTML test computed (Listening/Reading),
+/// and — for HTML tests that report via the EduVibe answer protocol — a per-question
+/// breakdown (<see cref="AnswersJson"/>) the teacher reviews. The student never sees
+/// the HTML test's result during the sitting; the teacher enters the official band.
 /// </summary>
 public sealed class ExamSectionResponse : BaseEntity
 {
     private ExamSectionResponse() { }
 
-    public ExamSectionResponse(Guid examAttemptId, Guid examSectionId, string? responseText, decimal? selfScore)
+    public ExamSectionResponse(Guid examAttemptId, Guid examSectionId, string? responseText, decimal? selfScore, string? answersJson = null)
     {
         if (examAttemptId == Guid.Empty) throw new DomainException("Attempt is required.");
         if (examSectionId == Guid.Empty) throw new DomainException("Section is required.");
         ExamAttemptId = examAttemptId;
         ExamSectionId = examSectionId;
-        SetResponse(responseText, selfScore);
+        SetResponse(responseText, selfScore, answersJson);
     }
 
     public Guid ExamAttemptId { get; private set; }
@@ -83,13 +85,24 @@ public sealed class ExamSectionResponse : BaseEntity
     public string? ResponseText { get; private set; }
     public decimal? SelfScore { get; private set; }
 
-    public void SetResponse(string? responseText, decimal? selfScore)
+    /// <summary>
+    /// For HTML Listening/Reading tests that post back via the EduVibe answer protocol:
+    /// a JSON object the test sent — the per-question breakdown (given vs correct) plus
+    /// the score — captured silently so the teacher can see exactly where the student
+    /// went wrong. Null = no structured answers were reported. Max 200 KB.
+    /// </summary>
+    public string? AnswersJson { get; private set; }
+
+    public void SetResponse(string? responseText, decimal? selfScore, string? answersJson = null)
     {
         var text = string.IsNullOrWhiteSpace(responseText) ? null : responseText.Trim();
         if (text is { Length: > 50_000 }) throw new DomainException("Response is too long.");
         ResponseText = text;
         if (selfScore is < 0m) throw new DomainException("Self score can't be negative.");
         SelfScore = selfScore;
+        var json = string.IsNullOrWhiteSpace(answersJson) ? null : answersJson.Trim();
+        if (json is { Length: > 200_000 }) throw new DomainException("Captured answers are too large.");
+        AnswersJson = json;
         Touch();
     }
 }

@@ -87,15 +87,20 @@ public sealed record TakeExamDto(
     Guid? AttemptId, DateTime? StartedAt, bool IsSubmitted,
     IReadOnlyCollection<TakeExamSectionDto> Sections);
 
-/// <summary>A student's answer to one section at submit time.</summary>
-public sealed record SectionResponseInputDto(Guid ExamSectionId, string? ResponseText, decimal? SelfScore);
+/// <summary>A student's answer to one section at submit time. <paramref name="AnswersJson"/>
+/// is the per-question breakdown an HTML test posted back (Listening/Reading), captured
+/// silently for the teacher.</summary>
+public sealed record SectionResponseInputDto(
+    Guid ExamSectionId, string? ResponseText, decimal? SelfScore, string? AnswersJson = null);
 
 public sealed record ExamAttemptDto(
     Guid Id, Guid ExamId, Guid StudentProfileId, DateTime StartedAt, DateTime? SubmittedAt);
 
-/// <summary>One section's answer, for the teacher reviewing a student's sitting.</summary>
+/// <summary>One section's answer, for the teacher reviewing a student's sitting.
+/// <paramref name="AnswersJson"/> carries the HTML test's per-question breakdown.</summary>
 public sealed record StudentAttemptResponseDto(
-    Guid ExamSectionId, string SectionName, ExamSectionKind Kind, string? ResponseText, decimal? SelfScore);
+    Guid ExamSectionId, string SectionName, ExamSectionKind Kind, string? ResponseText, decimal? SelfScore,
+    string? AnswersJson = null);
 
 /// <summary>A student's sitting of an exam, for teacher review (null attempt = not taken yet).</summary>
 public sealed record StudentAttemptDto(
