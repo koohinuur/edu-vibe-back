@@ -2,6 +2,7 @@ using LMS.Application.Common;
 using LMS.Application.Common.Abstractions;
 using LMS.Application.Common.Models;
 using LMS.Application.Common.Salary;
+using LMS.Application.Features.Notifications;
 using LMS.Domain.Entities;
 using LMS.Domain.Enums;
 using LMS.Domain.Exceptions;
@@ -10,7 +11,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace LMS.Application.Features.Payments;
 
-public sealed class PaymentsHandlers(IApplicationDbContext db, ISalaryCalculator salary) :
+public sealed class PaymentsHandlers(
+    IApplicationDbContext db, ISalaryCalculator salary, INotificationService notifications) :
     IRequestHandler<CreatePaymentCommand, Result<PaymentDto>>,
     IRequestHandler<MarkPaymentPaidCommand, Result<PaymentDto>>,
     IRequestHandler<MarkPaymentFailedCommand, Result<PaymentDto>>,
@@ -174,6 +176,19 @@ public sealed class PaymentsHandlers(IApplicationDbContext db, ISalaryCalculator
         if (p is null) return Result<PaymentDto>.Fail("NOT_FOUND", "Payment not found.");
         p.MarkPaid();
         await db.SaveChangesAsync(cancellationToken);
+
+        // DM the student a receipt via the platform bot — no-op if not linked.
+        var studentUserId = await db.StudentProfiles
+            .Where(sp => sp.Id == p.StudentProfileId).Select(sp => sp.UserId).FirstOrDefaultAsync(cancellationToken);
+        if (studentUserId != Guid.Empty)
+        {
+            var amount = p.Amount;
+            var currency = p.Currency.ToString();
+            var period = p.PeriodMonth;
+            await notifications.NotifyUserAsync(
+                studentUserId, lang => EventNotificationTexts.PaymentReceived(lang, amount, currency, period), cancellationToken);
+        }
+
         return Result<PaymentDto>.Ok(Map(p));
     }
 

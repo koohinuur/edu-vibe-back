@@ -36,4 +36,44 @@ public sealed class NotificationService(IApplicationDbContext db, ITelegramNotif
         foreach (var id in telegramIds)
             await notifier.SendToUserAsync(id, text, cancellationToken);
     }
+
+    public async Task NotifyUserAsync(
+        Guid userId, Func<string, string> textFactory, CancellationToken cancellationToken = default)
+    {
+        if (userId == Guid.Empty || textFactory is null) return;
+        var row = await (
+            from ta in db.TelegramAccounts
+            where ta.UserId == userId
+            join ts in db.TelegramSubscribers on ta.TelegramUserId equals ts.ChatId into tsj
+            from ts in tsj.DefaultIfEmpty()
+            select new { ta.TelegramUserId, Lang = ts != null ? ts.LanguageCode : null })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (row is null) return; // not linked
+        var text = textFactory(string.IsNullOrWhiteSpace(row.Lang) ? "en" : row.Lang!);
+        if (!string.IsNullOrWhiteSpace(text))
+            await notifier.SendToUserAsync(row.TelegramUserId, text, cancellationToken);
+    }
+
+    public async Task NotifyUsersAsync(
+        IReadOnlyCollection<Guid> userIds, Func<string, string> textFactory, CancellationToken cancellationToken = default)
+    {
+        if (userIds is null || userIds.Count == 0 || textFactory is null) return;
+        var ids = userIds.Where(u => u != Guid.Empty).Distinct().ToList();
+        if (ids.Count == 0) return;
+
+        var rows = await (
+            from ta in db.TelegramAccounts
+            where ids.Contains(ta.UserId)
+            join ts in db.TelegramSubscribers on ta.TelegramUserId equals ts.ChatId into tsj
+            from ts in tsj.DefaultIfEmpty()
+            select new { ta.TelegramUserId, Lang = ts != null ? ts.LanguageCode : null })
+            .ToListAsync(cancellationToken);
+
+        foreach (var r in rows)
+        {
+            var text = textFactory(string.IsNullOrWhiteSpace(r.Lang) ? "en" : r.Lang!);
+            if (!string.IsNullOrWhiteSpace(text))
+                await notifier.SendToUserAsync(r.TelegramUserId, text, cancellationToken);
+        }
+    }
 }
