@@ -22,6 +22,7 @@ public sealed class ClassesHandlers(IApplicationDbContext db, ICurrentUserServic
     IRequestHandler<EnrollStudentCommand, Result>,
     IRequestHandler<RemoveStudentFromClassCommand, Result>,
     IRequestHandler<GetClassStudentsQuery, Result<IReadOnlyCollection<Guid>>>,
+    IRequestHandler<GetClassRosterQuery, Result<IReadOnlyCollection<ClassRosterEntryDto>>>,
     IRequestHandler<GetGroupTypesQuery, Result<IReadOnlyCollection<string>>>
 {
     public async Task<Result> Handle(CancelClassCommand request, CancellationToken cancellationToken)
@@ -292,6 +293,16 @@ public sealed class ClassesHandlers(IApplicationDbContext db, ICurrentUserServic
         return Result<IReadOnlyCollection<Guid>>.Ok(await db.Enrollments
             .Where(x => x.ClassId == request.ClassId && x.Status == EnrollmentStatus.Active)
             .Select(x => x.StudentProfileId).ToListAsync(cancellationToken));
+    }
+
+    public async Task<Result<IReadOnlyCollection<ClassRosterEntryDto>>> Handle(GetClassRosterQuery request,
+        CancellationToken cancellationToken)
+    {
+        return Result<IReadOnlyCollection<ClassRosterEntryDto>>.Ok(await db.Enrollments
+            .Where(x => x.ClassId == request.ClassId)
+            .OrderBy(x => x.Status == EnrollmentStatus.Dropped) // active first, dropped last
+            .Select(x => new ClassRosterEntryDto(x.StudentProfileId, x.Status == EnrollmentStatus.Dropped))
+            .ToListAsync(cancellationToken));
     }
 
     public async Task<Result> Handle(RemoveStudentFromClassCommand request, CancellationToken cancellationToken)

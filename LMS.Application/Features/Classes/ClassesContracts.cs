@@ -62,6 +62,14 @@ public sealed record RemoveStudentFromClassCommand(Guid ClassId, Guid StudentPro
 
 public sealed record GetClassStudentsQuery(Guid ClassId) : IRequest<Result<IReadOnlyCollection<Guid>>>;
 
+/// <summary>One enrolled student with their enrollment state, for rosters that must
+/// show students who have since left (dropped) alongside active ones.</summary>
+public sealed record ClassRosterEntryDto(Guid StudentProfileId, bool Dropped);
+
+/// <summary>The full class roster INCLUDING dropped students (so the homework views
+/// can mark those who left after some lessons).</summary>
+public sealed record GetClassRosterQuery(Guid ClassId) : IRequest<Result<IReadOnlyCollection<ClassRosterEntryDto>>>;
+
 /// <summary>
 /// A class as the enrolled STUDENT sees it. Students can't read /api/Classes
 /// or /api/Staff, so the teacher's display name and the next upcoming
