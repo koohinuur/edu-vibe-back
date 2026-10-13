@@ -1,12 +1,15 @@
 using LMS.Application.Common.Abstractions;
 using LMS.Application.Common.Models;
 using LMS.Application.Common.Security;
+using LMS.Application.Features.Notifications;
+using LMS.Domain.Enums;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 
 namespace LMS.Application.Features.Attendance;
 
-public sealed class AttendanceHandlers(IApplicationDbContext db, ICurrentUserService currentUser) :
+public sealed class AttendanceHandlers(
+    IApplicationDbContext db, ICurrentUserService currentUser, INotificationService notifications) :
     IRequestHandler<MarkAttendanceCommand, Result<AttendanceDto>>,
     IRequestHandler<UpdateAttendanceCommand, Result<AttendanceDto>>,
     IRequestHandler<GetSessionAttendanceQuery, Result<IReadOnlyCollection<AttendanceDto>>>,
@@ -116,6 +119,7 @@ public sealed class AttendanceHandlers(IApplicationDbContext db, ICurrentUserSer
 
         existing.Mark(request.Status);
         await db.SaveChangesAsync(cancellationToken);
+        await NotifyIfAbsentOrLateAsync(existing.StudentProfileId, existing.ClassId, existing.SessionId, request.Status, cancellationToken);
         return Result<AttendanceDto>.Ok(Map(existing));
     }
 
@@ -126,7 +130,33 @@ public sealed class AttendanceHandlers(IApplicationDbContext db, ICurrentUserSer
         if (a is null) return Result<AttendanceDto>.Fail("NOT_FOUND", "Attendance not found.");
         a.Mark(request.Status);
         await db.SaveChangesAsync(cancellationToken);
+        await NotifyIfAbsentOrLateAsync(a.StudentProfileId, a.ClassId, a.SessionId, request.Status, cancellationToken);
         return Result<AttendanceDto>.Ok(Map(a));
+    }
+
+    /// <summary>
+    /// DMs the student (via the platform bot) when they're marked Absent or Late,
+    /// with the lesson date + class. No-op for Present/Excused or an unlinked student.
+    /// Fire-and-forget — the notifier swallows failures.
+    /// </summary>
+    private async Task NotifyIfAbsentOrLateAsync(
+        Guid studentProfileId, Guid classId, Guid sessionId, AttendanceStatus status, CancellationToken ct)
+    {
+        if (status is not (AttendanceStatus.Absent or AttendanceStatus.Late)) return;
+
+        var studentUserId = await db.StudentProfiles
+            .Where(sp => sp.Id == studentProfileId).Select(sp => sp.UserId).FirstOrDefaultAsync(ct);
+        if (studentUserId == Guid.Empty) return;
+
+        var date = await db.ClassSessions.Where(s => s.Id == sessionId)
+            .Select(s => s.SessionDate).FirstOrDefaultAsync(ct);
+        var className = await db.Classes.Where(c => c.Id == classId)
+            .Select(c => c.Title).FirstOrDefaultAsync(ct);
+
+        await notifications.NotifyUserAsync(
+            studentUserId,
+            lang => EventNotificationTexts.AttendanceMarked(lang, status == AttendanceStatus.Late, date, className),
+            ct);
     }
 
     public async Task<Result<IReadOnlyCollection<AttendanceDto>>> Handle(GetAttendanceQuery request,

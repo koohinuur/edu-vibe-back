@@ -1,6 +1,7 @@
 using LMS.Application.Common.Abstractions;
 using LMS.Application.Common.Models;
 using LMS.Application.Common.Security;
+using LMS.Application.Features.Notifications;
 using LMS.Domain.Entities;
 using LMS.Domain.Enums;
 using MediatR;
@@ -14,7 +15,7 @@ namespace LMS.Application.Features.Exams;
 /// computes overall % + pass/fail via <see cref="ExamScoring"/>. Students read only
 /// their own results. Cleanly separate from the F4 online task system.
 /// </summary>
-public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService currentUser) :
+public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService currentUser, INotificationService notifications) :
     IRequestHandler<CreateExamCommand, Result<ExamDto>>,
     IRequestHandler<UpdateExamCommand, Result<ExamDto>>,
     IRequestHandler<DeleteExamCommand, Result>,
@@ -309,6 +310,26 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
         if (request.Publish) result.Publish(DateTime.UtcNow);
         else result.Unpublish();
         await db.SaveChangesAsync(ct);
+
+        // On publish, DM the student their result (section bands + overall) via the
+        // platform bot — no-op if they haven't linked Telegram. Fire-and-forget.
+        if (request.Publish)
+        {
+            var studentUserId = await db.StudentProfiles
+                .Where(sp => sp.Id == request.StudentProfileId).Select(sp => sp.UserId).FirstOrDefaultAsync(ct);
+            if (studentUserId != Guid.Empty)
+            {
+                var scoreBySection = result.SectionScores.ToDictionary(ss => ss.ExamSectionId, ss => ss.Score);
+                var bandsLine = string.Join(" · ", exam.Sections.OrderBy(s => s.Order)
+                    .Where(s => scoreBySection.ContainsKey(s.Id))
+                    .Select(s => $"{s.Name} {scoreBySection[s.Id].ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)}"));
+                var title = exam.Title;
+                var overall = result.OverallPercent;
+                await notifications.NotifyUserAsync(
+                    studentUserId, lang => EventNotificationTexts.ExamResultPublished(lang, title, bandsLine, overall), ct);
+            }
+        }
+
         return Result<ExamResultDto>.Ok(MapResult(result), request.Publish ? "Result published." : "Result hidden.");
     }
 
