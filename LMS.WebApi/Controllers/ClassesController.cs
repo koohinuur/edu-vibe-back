@@ -69,6 +69,16 @@ public sealed class ClassesController(ISender sender) : ControllerBase
         return Ok(ApiResponse<IReadOnlyCollection<Guid>>.Ok(r.Data, r.Message));
     }
 
+    /// <summary>The full roster including students who have dropped (flagged), so the
+    /// homework views can show who has left the group.</summary>
+    [HttpGet("{id:guid}/roster")]
+    [PermissionAuthorize(Permissions.Classes.Read)]
+    public async Task<ActionResult<ApiResponse<IReadOnlyCollection<ClassRosterEntryDto>>>> Roster(Guid id, CancellationToken ct)
+    {
+        var r = await sender.Send(new GetClassRosterQuery(id), ct);
+        return Ok(ApiResponse<IReadOnlyCollection<ClassRosterEntryDto>>.Ok(r.Data, r.Message));
+    }
+
     /// <summary>
     /// Class engagement + outcomes: attendance rate, average grade, assignment +
     /// lesson completion rates, and at-risk students. Self-scoped in the handler
