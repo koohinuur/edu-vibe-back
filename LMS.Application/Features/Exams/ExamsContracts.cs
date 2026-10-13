@@ -15,7 +15,9 @@ public sealed record ExamSectionDto(
     ExamSectionKind Kind = ExamSectionKind.Generic,
     string? Prompt = null, string? AudioUrl = null, int? DurationMinutes = null, bool HasContent = false,
     string? ImageUrl = null, IReadOnlyList<ExamTaskDto>? Tasks = null,
-    SpeakingMode SpeakingMode = SpeakingMode.CueCard);
+    SpeakingMode SpeakingMode = SpeakingMode.CueCard,
+    // Listening/Reading answer key (staff-only read — this DTO never reaches students).
+    string? AnswerKey = null);
 
 public sealed record ExamDto(
     Guid Id,
@@ -73,7 +75,9 @@ public sealed record ExamSectionInputDto(
     ExamSectionKind Kind = ExamSectionKind.Generic,
     string? ContentHtml = null, string? AudioUrl = null, string? Prompt = null, int? DurationMinutes = null,
     string? ImageUrl = null, IReadOnlyList<ExamTaskDto>? Tasks = null,
-    SpeakingMode SpeakingMode = SpeakingMode.CueCard);
+    SpeakingMode SpeakingMode = SpeakingMode.CueCard,
+    // Listening/Reading answer key JSON — null/blank clears it.
+    string? AnswerKey = null);
 
 // ---- taking DTOs (student sitting the exam) --------------------------------
 
@@ -170,6 +174,16 @@ public sealed record EnterExamResultCommand(
     IReadOnlyCollection<SectionScoreInputDto> Scores) : IRequest<Result<ExamResultDto>>;
 
 public sealed record DeleteExamResultCommand(Guid ExamId, Guid StudentProfileId) : IRequest<Result>;
+
+/// <summary>
+/// Auto-grade the Listening/Reading sections that have an answer key: compares each
+/// student's captured answers to the key, converts the raw correct count (out of 40)
+/// to an IELTS band, and saves it as that section's score (preserving other sections).
+/// StudentProfileId null = every active-enrolled student; otherwise just that one.
+/// Returns the refreshed roster.
+/// </summary>
+public sealed record AutoGradeExamCommand(Guid ExamId, Guid? StudentProfileId = null)
+    : IRequest<Result<ExamRosterDto>>;
 
 /// <summary>Publish (or unpublish) one student's result — the spec #12 visibility gate.</summary>
 public sealed record PublishExamResultCommand(Guid ExamId, Guid StudentProfileId, bool Publish)

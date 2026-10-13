@@ -22,6 +22,7 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
     IRequestHandler<GetClassExamsQuery, Result<IReadOnlyCollection<ExamDto>>>,
     IRequestHandler<GetExamRosterQuery, Result<ExamRosterDto>>,
     IRequestHandler<EnterExamResultCommand, Result<ExamResultDto>>,
+    IRequestHandler<AutoGradeExamCommand, Result<ExamRosterDto>>,
     IRequestHandler<PublishExamResultCommand, Result<ExamResultDto>>,
     IRequestHandler<DeleteExamResultCommand, Result>,
     IRequestHandler<GetStudentExamResultsQuery, Result<IReadOnlyCollection<StudentExamResultDto>>>,
@@ -74,6 +75,7 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
             section.SetContent(s.Kind, s.ContentHtml, s.AudioUrl, s.Prompt, s.DurationMinutes, s.ImageUrl);
             section.SetTasks(ExamTaskJson.Serialize(s.Tasks));
             section.SetSpeakingMode(s.SpeakingMode);
+            section.SetAnswerKey(s.AnswerKey);
             exam.Sections.Add(section);
         }
         await db.Exams.AddAsync(exam, ct);
@@ -121,6 +123,7 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
                 sec.SetContent(s.Kind, s.ContentHtml, s.AudioUrl, s.Prompt, s.DurationMinutes, s.ImageUrl);
                 sec.SetTasks(ExamTaskJson.Serialize(s.Tasks));
                 sec.SetSpeakingMode(s.SpeakingMode);
+                sec.SetAnswerKey(s.AnswerKey);
                 keepIds.Add(id);
             }
             else
@@ -129,6 +132,7 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
                 added.SetContent(s.Kind, s.ContentHtml, s.AudioUrl, s.Prompt, s.DurationMinutes, s.ImageUrl);
                 added.SetTasks(ExamTaskJson.Serialize(s.Tasks));
                 added.SetSpeakingMode(s.SpeakingMode);
+                added.SetAnswerKey(s.AnswerKey);
                 await db.ExamSections.AddAsync(added, ct);
                 exam.Sections.Add(added);
                 keepIds.Add(added.Id);
@@ -173,7 +177,11 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
     {
         var (exam, code, msg) = await ResolveOwnedExamAsync(request.ExamId, ct, tracking: false);
         if (exam is null) return Result<ExamRosterDto>.Fail(code!, msg!);
+        return Result<ExamRosterDto>.Ok(await BuildRosterAsync(exam, ct));
+    }
 
+    private async Task<ExamRosterDto> BuildRosterAsync(Exam exam, CancellationToken ct)
+    {
         var students = await (
             from e in db.Enrollments
             join sp in db.StudentProfiles on e.StudentProfileId equals sp.Id
@@ -190,7 +198,112 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
             s.Id, s.FirstName, s.LastName, s.Email,
             byStudent.TryGetValue(s.Id, out var r) ? MapResult(r) : null)).ToList();
 
-        return Result<ExamRosterDto>.Ok(new ExamRosterDto(MapExam(exam), rows));
+        return new ExamRosterDto(MapExam(exam), rows);
+    }
+
+    /// <summary>
+    /// Auto-grade the Listening/Reading sections that carry an answer key: for each
+    /// target student's latest attempt, compare captured answers to the key, convert
+    /// the raw correct count to an IELTS band, and upsert it as that section's score —
+    /// other sections' scores + feedback are preserved and the overall % recomputed.
+    /// </summary>
+    public async Task<Result<ExamRosterDto>> Handle(AutoGradeExamCommand request, CancellationToken ct)
+    {
+        var (exam, code, msg) = await ResolveOwnedExamAsync(request.ExamId, ct, tracking: true);
+        if (exam is null) return Result<ExamRosterDto>.Fail(code!, msg!);
+
+        var gradable = exam.Sections
+            .Where(s => (s.Kind == ExamSectionKind.Listening || s.Kind == ExamSectionKind.Reading)
+                        && !string.IsNullOrWhiteSpace(s.AnswerKey))
+            .ToList();
+        if (gradable.Count == 0)
+            return Result<ExamRosterDto>.Fail("VALIDATION",
+                "No Listening/Reading section has an answer key. Add a key on the exam first.");
+
+        // Target: one student, or every active-enrolled student in the class.
+        List<Guid> targetIds;
+        if (request.StudentProfileId is { } one)
+        {
+            var enrolled = await db.Enrollments.AnyAsync(e =>
+                e.ClassId == exam.ClassId && e.StudentProfileId == one && e.Status == EnrollmentStatus.Active, ct);
+            if (!enrolled) return Result<ExamRosterDto>.Fail("VALIDATION", "The student is not enrolled in this class.");
+            targetIds = [one];
+        }
+        else
+        {
+            targetIds = await db.Enrollments
+                .Where(e => e.ClassId == exam.ClassId && e.Status == EnrollmentStatus.Active)
+                .Select(e => e.StudentProfileId).ToListAsync(ct);
+        }
+
+        // Latest attempt (with responses) per target student, mirroring the review view.
+        var attempts = await db.ExamAttempts.AsNoTracking().Include(a => a.Responses)
+            .Where(a => a.ExamId == exam.Id && targetIds.Contains(a.StudentProfileId))
+            .ToListAsync(ct);
+        var attemptByStudent = attempts
+            .GroupBy(a => a.StudentProfileId)
+            .ToDictionary(g => g.Key, g => g.OrderByDescending(a => a.StartedAt).First());
+
+        var maxById = exam.Sections.ToDictionary(s => s.Id, s => s.MaxScore);
+        var enteredBy = currentUser.UserId!.Value;
+        var now = DateTime.UtcNow;
+        var gradedStudents = 0;
+
+        foreach (var sid in targetIds)
+        {
+            if (!attemptByStudent.TryGetValue(sid, out var attempt)) continue;
+
+            var sectionBands = new List<(Guid SectionId, decimal Band)>();
+            foreach (var sec in gradable)
+            {
+                var resp = attempt.Responses.FirstOrDefault(r => r.ExamSectionId == sec.Id);
+                if (resp?.AnswersJson is null) continue;
+                if (ExamAutoGrade.Grade(sec.AnswerKey, resp.AnswersJson) is not { } graded) continue;
+                var band = ExamScoring.IeltsBand(graded.Raw, sec.Kind == ExamSectionKind.Reading);
+                if (band > sec.MaxScore) band = sec.MaxScore;
+                sectionBands.Add((sec.Id, band));
+            }
+            if (sectionBands.Count == 0) continue;
+
+            var result = await db.ExamResults.Include(r => r.SectionScores)
+                .FirstOrDefaultAsync(r => r.ExamId == exam.Id && r.StudentProfileId == sid, ct);
+            if (result is null)
+            {
+                result = new ExamResult(exam.Id, sid, enteredBy);
+                await db.ExamResults.AddAsync(result, ct);
+            }
+
+            foreach (var (sectionId, band) in sectionBands)
+            {
+                var existing = result.SectionScores.FirstOrDefault(ss => ss.ExamSectionId == sectionId);
+                if (existing is null)
+                {
+                    var added = new ExamSectionScore(result.Id, sectionId, band);
+                    await db.ExamSectionScores.AddAsync(added, ct);
+                    result.SectionScores.Add(added);
+                }
+                else
+                {
+                    existing.SetScore(band);
+                }
+            }
+
+            // Overall % recomputed from whatever sections currently have a score
+            // (Writing/Speaking may still be pending manual grading).
+            var inputs = result.SectionScores
+                .Where(ss => maxById.ContainsKey(ss.ExamSectionId))
+                .Select(ss => new ExamSectionInput(ss.Score, maxById[ss.ExamSectionId])).ToList();
+            var score = ExamScoring.Compute(inputs, exam.EffectiveThresholdPercent);
+            result.Record(score.OverallPercent, score.Passed, enteredBy, now);
+            gradedStudents++;
+        }
+
+        await db.SaveChangesAsync(ct);
+
+        var roster = await BuildRosterAsync(exam, ct);
+        return Result<ExamRosterDto>.Ok(roster, gradedStudents == 0
+            ? "No captured Listening/Reading answers to grade yet."
+            : $"Auto-graded {gradedStudents} student(s) from the answer key.");
     }
 
     public async Task<Result<ExamResultDto>> Handle(EnterExamResultCommand request, CancellationToken ct)
@@ -449,7 +562,7 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
             .Select(s => new ExamSectionDto(
                 s.Id, s.Name, s.MaxScore, s.Order,
                 s.Kind, s.Prompt, s.AudioUrl, s.DurationMinutes, s.ContentHtml != null, s.ImageUrl,
-                ExamTaskJson.Parse(s.TasksJson), s.SpeakingMode)).ToList(),
+                ExamTaskJson.Parse(s.TasksJson), s.SpeakingMode, s.AnswerKey)).ToList(),
         e.ExamType);
 
     private static ExamResultDto MapResult(ExamResult r) => new(
