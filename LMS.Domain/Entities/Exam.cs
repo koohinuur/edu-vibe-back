@@ -129,6 +129,14 @@ public sealed class ExamSection : BaseEntity
     public int? DurationMinutes { get; private set; }
 
     /// <summary>
+    /// For Listening/Reading: the correct-answer key, as a JSON object mapping each
+    /// question label to its accepted answer(s) — e.g. { "q11": "A", "q12": ["20","twenty"] }.
+    /// Used to auto-grade a student's captured answers into a raw score → IELTS band.
+    /// Null = no key (the section is graded manually). Max 100 KB.
+    /// </summary>
+    public string? AnswerKey { get; private set; }
+
+    /// <summary>
     /// For a Speaking section: how it's taken — the student records their answer
     /// (<see cref="SpeakingMode.CueCard"/>, the default) or it's done live on Zoom/Meet
     /// (<see cref="SpeakingMode.Live"/>). Ignored for other kinds.
@@ -161,6 +169,15 @@ public sealed class ExamSection : BaseEntity
         ImageUrl = string.IsNullOrWhiteSpace(imageUrl) ? null : imageUrl.Trim();
         if (durationMinutes is < 0) throw new DomainException("Duration can't be negative.");
         DurationMinutes = durationMinutes;
+        Touch();
+    }
+
+    /// <summary>Sets (or clears) the Listening/Reading answer key JSON. Null/blank clears. Max 100 KB.</summary>
+    public void SetAnswerKey(string? answerKey)
+    {
+        var json = string.IsNullOrWhiteSpace(answerKey) ? null : answerKey.Trim();
+        if (json is { Length: > 100_000 }) throw new DomainException("Answer key is too large.");
+        AnswerKey = json;
         Touch();
     }
 

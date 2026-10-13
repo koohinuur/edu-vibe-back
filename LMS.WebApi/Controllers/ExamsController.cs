@@ -68,6 +68,18 @@ public sealed class ExamsController(ISender sender, ISubmissionFileStore audioSt
         Guid id, Guid studentProfileId, CancellationToken ct)
         => Respond(await sender.Send(new DeleteExamResultCommand(id, studentProfileId), ct));
 
+    public sealed record AutoGradeBody(Guid? StudentProfileId);
+
+    /// <summary>
+    /// Auto-grade the Listening/Reading sections that have an answer key — one student
+    /// (body.StudentProfileId) or the whole class. Returns the refreshed roster.
+    /// </summary>
+    [HttpPost("{id:guid}/auto-grade")]
+    [PermissionAuthorize(Permissions.Exams.Manage)]
+    public async Task<ActionResult<ApiResponse<ExamRosterDto>>> AutoGrade(
+        Guid id, [FromBody] AutoGradeBody? body, CancellationToken ct)
+        => Respond(await sender.Send(new AutoGradeExamCommand(id, body?.StudentProfileId), ct));
+
     public sealed record PublishBody(bool Publish);
 
     /// <summary>Publish (or hide) one student's result — the spec #12 visibility gate.</summary>
