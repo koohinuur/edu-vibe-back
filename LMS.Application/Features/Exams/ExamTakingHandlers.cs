@@ -114,6 +114,26 @@ public sealed class ExamTakingHandlers(IApplicationDbContext db, ICurrentUserSer
         attempt.RecordFocusLosses(request.FocusLossCount);
         attempt.Submit(DateTime.UtcNow);
         await db.SaveChangesAsync(ct);
+
+        // Auto-grade the Listening/Reading sections that carry an answer key the moment
+        // the student submits — the band appears with no teacher step. Writing/Speaking
+        // stay manual. Best-effort: a grading hiccup must not fail the submit itself.
+        try
+        {
+            var examForGrading = await db.Exams.Include(e => e.Sections)
+                .FirstOrDefaultAsync(e => e.Id == exam!.Id, ct);
+            if (examForGrading is not null && currentUser.UserId is { } uid)
+            {
+                var graded = await ExamAutoGradeRunner.AutoGradeAsync(
+                    db, examForGrading, [spid], uid, DateTime.UtcNow, ct);
+                if (graded > 0) await db.SaveChangesAsync(ct);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Swallow — the sitting is safely submitted; the teacher can re-grade from the key.
+        }
+
         return Result<ExamAttemptDto>.Ok(MapAttempt(attempt));
     }
 

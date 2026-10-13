@@ -212,11 +212,10 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
         var (exam, code, msg) = await ResolveOwnedExamAsync(request.ExamId, ct, tracking: true);
         if (exam is null) return Result<ExamRosterDto>.Fail(code!, msg!);
 
-        var gradable = exam.Sections
-            .Where(s => (s.Kind == ExamSectionKind.Listening || s.Kind == ExamSectionKind.Reading)
-                        && !string.IsNullOrWhiteSpace(s.AnswerKey))
-            .ToList();
-        if (gradable.Count == 0)
+        var hasKey = exam.Sections.Any(s =>
+            (s.Kind == ExamSectionKind.Listening || s.Kind == ExamSectionKind.Reading)
+            && !string.IsNullOrWhiteSpace(s.AnswerKey));
+        if (!hasKey)
             return Result<ExamRosterDto>.Fail("VALIDATION",
                 "No Listening/Reading section has an answer key. Add a key on the exam first.");
 
@@ -236,68 +235,8 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
                 .Select(e => e.StudentProfileId).ToListAsync(ct);
         }
 
-        // Latest attempt (with responses) per target student, mirroring the review view.
-        var attempts = await db.ExamAttempts.AsNoTracking().Include(a => a.Responses)
-            .Where(a => a.ExamId == exam.Id && targetIds.Contains(a.StudentProfileId))
-            .ToListAsync(ct);
-        var attemptByStudent = attempts
-            .GroupBy(a => a.StudentProfileId)
-            .ToDictionary(g => g.Key, g => g.OrderByDescending(a => a.StartedAt).First());
-
-        var maxById = exam.Sections.ToDictionary(s => s.Id, s => s.MaxScore);
-        var enteredBy = currentUser.UserId!.Value;
-        var now = DateTime.UtcNow;
-        var gradedStudents = 0;
-
-        foreach (var sid in targetIds)
-        {
-            if (!attemptByStudent.TryGetValue(sid, out var attempt)) continue;
-
-            var sectionBands = new List<(Guid SectionId, decimal Band)>();
-            foreach (var sec in gradable)
-            {
-                var resp = attempt.Responses.FirstOrDefault(r => r.ExamSectionId == sec.Id);
-                if (resp?.AnswersJson is null) continue;
-                if (ExamAutoGrade.Grade(sec.AnswerKey, resp.AnswersJson) is not { } graded) continue;
-                var band = ExamScoring.IeltsBand(graded.Raw, sec.Kind == ExamSectionKind.Reading);
-                if (band > sec.MaxScore) band = sec.MaxScore;
-                sectionBands.Add((sec.Id, band));
-            }
-            if (sectionBands.Count == 0) continue;
-
-            var result = await db.ExamResults.Include(r => r.SectionScores)
-                .FirstOrDefaultAsync(r => r.ExamId == exam.Id && r.StudentProfileId == sid, ct);
-            if (result is null)
-            {
-                result = new ExamResult(exam.Id, sid, enteredBy);
-                await db.ExamResults.AddAsync(result, ct);
-            }
-
-            foreach (var (sectionId, band) in sectionBands)
-            {
-                var existing = result.SectionScores.FirstOrDefault(ss => ss.ExamSectionId == sectionId);
-                if (existing is null)
-                {
-                    var added = new ExamSectionScore(result.Id, sectionId, band);
-                    await db.ExamSectionScores.AddAsync(added, ct);
-                    result.SectionScores.Add(added);
-                }
-                else
-                {
-                    existing.SetScore(band);
-                }
-            }
-
-            // Overall % recomputed from whatever sections currently have a score
-            // (Writing/Speaking may still be pending manual grading).
-            var inputs = result.SectionScores
-                .Where(ss => maxById.ContainsKey(ss.ExamSectionId))
-                .Select(ss => new ExamSectionInput(ss.Score, maxById[ss.ExamSectionId])).ToList();
-            var score = ExamScoring.Compute(inputs, exam.EffectiveThresholdPercent);
-            result.Record(score.OverallPercent, score.Passed, enteredBy, now);
-            gradedStudents++;
-        }
-
+        var gradedStudents = await ExamAutoGradeRunner.AutoGradeAsync(
+            db, exam, targetIds, currentUser.UserId!.Value, DateTime.UtcNow, ct);
         await db.SaveChangesAsync(ct);
 
         var roster = await BuildRosterAsync(exam, ct);
