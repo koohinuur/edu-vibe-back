@@ -1,6 +1,7 @@
 using LMS.Application.Common;
 using LMS.Application.Common.Abstractions;
 using LMS.Application.Common.Models;
+using LMS.Application.Features.Notifications;
 using LMS.Domain.Entities;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -8,7 +9,7 @@ using Microsoft.EntityFrameworkCore;
 namespace LMS.Application.Features.Assignments;
 
 public sealed class AssignmentsHandlers(
-    IApplicationDbContext db, ITelegramNotifier notifier, ICurrentUserService currentUser) :
+    IApplicationDbContext db, ICurrentUserService currentUser, INotificationService notifications) :
     IRequestHandler<CreateAssignmentCommand, Result<AssignmentDto>>,
     IRequestHandler<UpdateAssignmentCommand, Result<AssignmentDto>>,
     IRequestHandler<PublishAssignmentCommand, Result<AssignmentDto>>,
@@ -243,21 +244,16 @@ public sealed class AssignmentsHandlers(
 
         var userIds = await db.StudentProfiles
             .Where(s => profileIds.Contains(s.Id)).Select(s => s.UserId).ToListAsync(ct);
-        var telegramIds = await db.TelegramAccounts
-            .Where(t => userIds.Contains(t.UserId)).Select(t => t.TelegramUserId).ToListAsync(ct);
-        if (telegramIds.Count == 0) return;
+        if (userIds.Count == 0) return;
 
         var className = await db.Classes
             .Where(c => c.Id == a.ClassId).Select(c => c.Title).FirstOrDefaultAsync(ct);
-        var due = a.DueDate is { } d ? $"\nDue: {d:yyyy-MM-dd HH:mm} UTC" : "";
-        var text =
-            $"📚 New assignment: {a.Title}" +
-            (string.IsNullOrWhiteSpace(className) ? "" : $"\nClass: {className}") +
-            due +
-            "\n\nOpen EduVibe to view it.";
+        var title = a.Title;
+        var due = a.DueDate;
 
-        foreach (var telegramId in telegramIds)
-            await notifier.SendToUserAsync(telegramId, text, ct);
+        // Localized per student (bot language), linkage resolved by the service.
+        await notifications.NotifyUsersAsync(
+            userIds, lang => EventNotificationTexts.HomeworkAssigned(lang, title, className, due), ct);
     }
 
     public async Task<Result<AssignmentDto>> Handle(UpdateAssignmentCommand request,

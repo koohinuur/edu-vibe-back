@@ -744,6 +744,21 @@ public sealed class CurriculumLessonMaterialConfiguration : IEntityTypeConfigura
     }
 }
 
+public sealed class CurriculumLessonMaterialClassConfiguration : IEntityTypeConfiguration<CurriculumLessonMaterialClass>
+{
+    public void Configure(EntityTypeBuilder<CurriculumLessonMaterialClass> b)
+    {
+        b.ToTable("curriculum_lesson_material_classes");
+        b.HasKey(x => x.Id);
+        // One row per (lesson-material, class); re-targeting replaces the set.
+        b.HasIndex(x => new { x.CurriculumLessonMaterialId, x.ClassId }).IsUnique();
+        b.HasOne(x => x.LessonMaterial).WithMany(m => m.TargetClasses)
+            .HasForeignKey(x => x.CurriculumLessonMaterialId).OnDelete(DeleteBehavior.Cascade);
+        b.HasOne(x => x.Class).WithMany()
+            .HasForeignKey(x => x.ClassId).OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
 public sealed class MaterialClassConfiguration : IEntityTypeConfiguration<MaterialClass>
 {
     public void Configure(EntityTypeBuilder<MaterialClass> b)
@@ -1090,6 +1105,7 @@ public sealed class ExamSectionConfiguration : IEntityTypeConfiguration<ExamSect
         b.Property(x => x.ImageUrl).HasMaxLength(1024);
         b.Property(x => x.Prompt).HasColumnType("text");
         b.Property(x => x.TasksJson).HasColumnType("text");
+        b.Property(x => x.AnswerKey).HasColumnType("text");
         b.HasIndex(x => new { x.ExamId, x.Order });
         b.HasOne(x => x.Exam).WithMany(e => e.Sections).HasForeignKey(x => x.ExamId)
             .OnDelete(DeleteBehavior.Cascade);

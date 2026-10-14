@@ -36,13 +36,19 @@ public sealed class CourseMaterialsController(ISender sender) : ControllerBase
         Guid templateId, CancellationToken ct)
         => (await sender.Send(new GetCourseMaterialsQuery(templateId), ct)).ToApiResult();
 
-    public sealed record AttachBody(Guid MaterialId, LessonMaterialSection Section);
+    /// <summary>Classes that follow a course — the per-material class-targeting picker.</summary>
+    [HttpGet("course/{templateId:guid}/classes")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyCollection<CourseClassDto>>>> CourseClasses(
+        Guid templateId, CancellationToken ct)
+        => (await sender.Send(new GetCourseClassesQuery(templateId), ct)).ToApiResult();
 
-    /// <summary>Attach a course material to a lesson under a section.</summary>
+    public sealed record AttachBody(Guid MaterialId, LessonMaterialSection Section, IReadOnlyCollection<Guid>? ClassIds = null);
+
+    /// <summary>Attach a material to a lesson under a section, optionally targeting specific classes.</summary>
     [HttpPost("lesson/{lessonId:guid}/attach")]
     public async Task<ActionResult<ApiResponse<LessonMaterialDto>>> Attach(
         Guid lessonId, [FromBody] AttachBody body, CancellationToken ct)
-        => (await sender.Send(new AttachLessonMaterialCommand(lessonId, body.MaterialId, body.Section), ct)).ToApiResult();
+        => (await sender.Send(new AttachLessonMaterialCommand(lessonId, body.MaterialId, body.Section, body.ClassIds), ct)).ToApiResult();
 
     /// <summary>Remove a material from a lesson's section.</summary>
     [HttpDelete("lesson/{lessonId:guid}/material/{materialId:guid}/section/{section}")]

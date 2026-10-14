@@ -35,6 +35,12 @@ public sealed class CurriculumLessonMaterial : BaseEntity
     public LessonMaterialSection Section { get; private set; }
     public int Order { get; private set; }
 
+    /// <summary>
+    /// Classes this attachment is restricted to. Empty = visible to every class on
+    /// the course (the default); any rows restrict it to exactly those classes.
+    /// </summary>
+    public ICollection<CurriculumLessonMaterialClass> TargetClasses { get; } = new List<CurriculumLessonMaterialClass>();
+
     public void SetOrder(int order)
     {
         Order = order;

@@ -63,6 +63,12 @@ public sealed class MaterialsHandlers(IApplicationDbContext db, ICurrentUserServ
         var take = Math.Clamp(request.Take, 1, 100);
         var items = await db.Materials.AsNoTracking()
             .Where(m => m.Visibility == MaterialVisibility.Public)
+            // Don't leak class-targeted course materials onto the public site: a
+            // material that is attached to lesson(s) and restricted to specific
+            // classes (no "open" attachment) is excluded. No attachments, or any
+            // open attachment, stays public.
+            .Where(m => !db.CurriculumLessonMaterials.Any(lm => lm.MaterialId == m.Id)
+                        || db.CurriculumLessonMaterials.Any(lm => lm.MaterialId == m.Id && !lm.TargetClasses.Any()))
             .OrderByDescending(m => m.CreatedAt)
             .Take(take)
             .Select(m => new MaterialDto(
@@ -99,6 +105,9 @@ public sealed class MaterialsHandlers(IApplicationDbContext db, ICurrentUserServ
         // by id-guessing the public endpoint.
         var m = await db.Materials.AsNoTracking()
             .Where(x => x.Id == request.MaterialId && x.Visibility == MaterialVisibility.Public)
+            // Same guard as the public list: a class-targeted material isn't public.
+            .Where(x => !db.CurriculumLessonMaterials.Any(lm => lm.MaterialId == x.Id)
+                        || db.CurriculumLessonMaterials.Any(lm => lm.MaterialId == x.Id && !lm.TargetClasses.Any()))
             .Select(x => new MaterialDownloadDto(x.Id, x.StoredFileName, x.OriginalFileName, x.MimeType))
             .FirstOrDefaultAsync(ct);
         return m is null
@@ -237,6 +246,7 @@ public sealed class MaterialsHandlers(IApplicationDbContext db, ICurrentUserServ
         // materials never appear here — only privileged callers (short-
         // circuited above) ever see them.
         IQueryable<Guid>? scopedIds = null;
+        IQueryable<Guid>? studentClassIds = null;
 
         if (isTeacher)
         {
@@ -255,7 +265,7 @@ public sealed class MaterialsHandlers(IApplicationDbContext db, ICurrentUserServ
             // The student's classes are the active enrollments of their
             // student profile. Resolve via StudentProfile.UserId so the
             // join is a single hop.
-            var studentClassIds = db.Enrollments
+            studentClassIds = db.Enrollments
                 .Where(e => e.Status == EnrollmentStatus.Active
                             && db.StudentProfiles.Any(sp =>
                                 sp.UserId == userId && sp.Id == e.StudentProfileId))
@@ -268,8 +278,28 @@ public sealed class MaterialsHandlers(IApplicationDbContext db, ICurrentUserServ
         }
 
         var combined = scopedIds is null ? publicIds : publicIds.Concat(scopedIds).Distinct();
-        var ids = await combined.ToListAsync(ct);
-        return new HashSet<Guid>(ids);
+        var ids = new HashSet<Guid>(await combined.ToListAsync(ct));
+
+        // Per-lesson class targeting also governs the flat Materials list + downloads:
+        // a material that is attached to lesson(s) and restricted to specific classes
+        // (every attachment targeted, none left open) is hidden from a student unless
+        // one of their classes is a target. Materials with no attachments, or with any
+        // "open" attachment, keep their normal visibility.
+        if (isStudent && studentClassIds is not null)
+        {
+            var openMaterialIds = db.CurriculumLessonMaterials
+                .Where(lm => !lm.TargetClasses.Any()).Select(lm => lm.MaterialId);
+            var targetedToMeIds = db.CurriculumLessonMaterials
+                .Where(lm => lm.TargetClasses.Any(tc => studentClassIds.Contains(tc.ClassId)))
+                .Select(lm => lm.MaterialId);
+            var restrictedAwayIds = await db.CurriculumLessonMaterials
+                .Select(lm => lm.MaterialId).Distinct()
+                .Where(mid => !openMaterialIds.Contains(mid) && !targetedToMeIds.Contains(mid))
+                .ToListAsync(ct);
+            ids.ExceptWith(restrictedAwayIds);
+        }
+
+        return ids;
     }
 
     private bool IsPrivileged()

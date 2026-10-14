@@ -99,4 +99,70 @@ public sealed class ExamScoringTests
         var requested = new[] { new ExamSectionEdit(a, 25m), new ExamSectionEdit(null, 30m) }; // a max↑, + new
         ExamSectionChange.IsDestructive(new[] { new ExamSectionState(a, 20m) }, requested).Should().BeFalse();
     }
+
+    // ---- IELTS raw→band table ----------------------------------------------
+    [Theory]
+    [InlineData(40, 9.0)]
+    [InlineData(39, 9.0)]
+    [InlineData(37, 8.5)]
+    [InlineData(30, 7.0)]
+    [InlineData(23, 6.0)]
+    [InlineData(16, 5.0)]
+    [InlineData(0, 0.0)]
+    public void Listening_band_from_raw(int raw, double band)
+        => ExamScoring.IeltsBand(raw, isReading: false).Should().Be((decimal)band);
+
+    [Theory]
+    [InlineData(40, 9.0)]
+    [InlineData(30, 7.0)]  // Reading needs 30 for 7 (Listening needs 30 too, but differs mid-band)
+    [InlineData(27, 6.5)]
+    [InlineData(23, 6.0)]
+    [InlineData(15, 5.0)]
+    public void Reading_band_from_raw(int raw, double band)
+        => ExamScoring.IeltsBand(raw, isReading: true).Should().Be((decimal)band);
+
+    [Fact]
+    public void Band_clamps_raw_out_of_range()
+    {
+        ExamScoring.IeltsBand(99, isReading: false).Should().Be(9m);
+        ExamScoring.IeltsBand(-5, isReading: false).Should().Be(0m);
+    }
+
+    // ---- auto-grade against the answer key ---------------------------------
+    [Fact]
+    public void Grade_counts_matches_case_and_space_insensitively()
+    {
+        const string key = """{ "q1": "A", "q2": ["20", "twenty"], "q3": "New York" }""";
+        const string answers = """
+            { "answers": [
+              { "q": "q1", "given": "a" },
+              { "q": "q2", "given": "Twenty" },
+              { "q": "q3", "given": "new   york" },
+              { "q": "volume-slider", "given": "7" }
+            ] }
+            """;
+        var r = ExamAutoGrade.Grade(key, answers);
+        r.Should().NotBeNull();
+        r!.Value.Raw.Should().Be(3);
+        r.Value.Total.Should().Be(3); // only keyed questions count; the slider is ignored
+    }
+
+    [Fact]
+    public void Grade_counts_wrong_and_missing_as_not_correct()
+    {
+        const string key = """{ "q1": "A", "q2": "B", "q3": "C" }""";
+        const string answers = """{ "answers": [ { "q": "q1", "given": "A" }, { "q": "q2", "given": "D" } ] }""";
+        var r = ExamAutoGrade.Grade(key, answers);
+        r!.Value.Raw.Should().Be(1); // q1 right, q2 wrong, q3 unanswered
+        r.Value.Total.Should().Be(3);
+    }
+
+    [Fact]
+    public void Grade_returns_null_when_nothing_to_grade()
+    {
+        ExamAutoGrade.Grade(null, """{ "answers": [] }""").Should().BeNull();        // no key
+        ExamAutoGrade.Grade("""{ "q1": "A" }""", null).Should().BeNull();            // no answers
+        ExamAutoGrade.Grade("""{ "q1": "A" }""", "not json").Should().BeNull();      // malformed
+        ExamAutoGrade.Grade("""{ "q1": "A" }""", """{ "answers": [] }""").Should().BeNull(); // empty answers
+    }
 }
