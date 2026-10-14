@@ -44,6 +44,28 @@ public static class EventNotificationTexts
         };
     }
 
+    /// <summary>A new assignment was published to the student's class.</summary>
+    public static string HomeworkAssigned(string? lang, string title, string? className, DateTime? dueUtc)
+    {
+        var due = dueUtc is { } d ? d.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) + " UTC" : null;
+        var cls = string.IsNullOrWhiteSpace(className) ? null : className;
+        return Norm(lang) switch
+        {
+            "uz" => $"📚 Yangi vazifa: {title}"
+                    + (cls is null ? "" : $"\nSinf: {cls}")
+                    + (due is null ? "" : $"\nMuddat: {due}")
+                    + "\n\nKo'rish uchun EduVibe'ni oching.",
+            "ru" => $"📚 Новое задание: {title}"
+                    + (cls is null ? "" : $"\nКласс: {cls}")
+                    + (due is null ? "" : $"\nСрок: {due}")
+                    + "\n\nОткройте EduVibe, чтобы посмотреть.",
+            _ => $"📚 New assignment: {title}"
+                    + (cls is null ? "" : $"\nClass: {cls}")
+                    + (due is null ? "" : $"\nDue: {due}")
+                    + "\n\nOpen EduVibe to view it.",
+        };
+    }
+
     /// <summary>A student's payment was confirmed as paid (receipt).</summary>
     public static string PaymentReceived(string? lang, decimal amount, string currency, DateOnly periodMonth)
     {
