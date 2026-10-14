@@ -108,6 +108,8 @@ public sealed class AttendanceHandlers(
     {
         var existing = await db.Attendance.FirstOrDefaultAsync(
             x => x.SessionId == request.SessionId && x.StudentProfileId == request.StudentProfileId, cancellationToken);
+        // Prior status (null = brand-new mark) — so we only DM on an actual change.
+        AttendanceStatus? prev = existing?.Status;
         if (existing is null)
         {
             // Uniqueness was already established by the targeted lookup above, so
@@ -119,7 +121,8 @@ public sealed class AttendanceHandlers(
 
         existing.Mark(request.Status);
         await db.SaveChangesAsync(cancellationToken);
-        await NotifyIfAbsentOrLateAsync(existing.StudentProfileId, existing.ClassId, existing.SessionId, request.Status, cancellationToken);
+        if (request.Status != prev)
+            await NotifyIfAbsentOrLateAsync(existing.StudentProfileId, existing.ClassId, existing.SessionId, request.Status, cancellationToken);
         return Result<AttendanceDto>.Ok(Map(existing));
     }
 
@@ -128,9 +131,11 @@ public sealed class AttendanceHandlers(
     {
         var a = await db.Attendance.FirstOrDefaultAsync(x => x.Id == request.AttendanceId, cancellationToken);
         if (a is null) return Result<AttendanceDto>.Fail("NOT_FOUND", "Attendance not found.");
+        var prev = a.Status;
         a.Mark(request.Status);
         await db.SaveChangesAsync(cancellationToken);
-        await NotifyIfAbsentOrLateAsync(a.StudentProfileId, a.ClassId, a.SessionId, request.Status, cancellationToken);
+        if (request.Status != prev)
+            await NotifyIfAbsentOrLateAsync(a.StudentProfileId, a.ClassId, a.SessionId, request.Status, cancellationToken);
         return Result<AttendanceDto>.Ok(Map(a));
     }
 
