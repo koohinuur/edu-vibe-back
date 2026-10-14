@@ -23,7 +23,8 @@ public sealed class CourseMaterialsHandlers(IApplicationDbContext db, ICurrentUs
     IRequestHandler<GetCourseMaterialsQuery, Result<IReadOnlyCollection<CourseMaterialDto>>>,
     IRequestHandler<AttachLessonMaterialCommand, Result<LessonMaterialDto>>,
     IRequestHandler<DetachLessonMaterialCommand, Result<bool>>,
-    IRequestHandler<GetClassLessonMaterialsQuery, Result<ClassLessonMaterialsDto>>
+    IRequestHandler<GetClassLessonMaterialsQuery, Result<ClassLessonMaterialsDto>>,
+    IRequestHandler<GetCourseClassesQuery, Result<IReadOnlyCollection<CourseClassDto>>>
 {
     public async Task<Result<IReadOnlyCollection<LessonMaterialDto>>> Handle(
         GetLessonMaterialsQuery request, CancellationToken ct)
@@ -39,7 +40,8 @@ public sealed class CourseMaterialsHandlers(IApplicationDbContext db, ICurrentUs
             where lm.CurriculumLessonId == request.CurriculumLessonId
             orderby lm.Section, lm.Order, m.Title
             select new LessonMaterialDto(
-                lm.Id, m.Id, m.Title, m.Description, m.OriginalFileName, m.MimeType, m.FileSize, lm.Section, lm.Order))
+                lm.Id, m.Id, m.Title, m.Description, m.OriginalFileName, m.MimeType, m.FileSize, lm.Section, lm.Order,
+                lm.TargetClasses.Select(tc => tc.ClassId).ToList()))
             .ToListAsync(ct);
 
         return Result<IReadOnlyCollection<LessonMaterialDto>>.Ok(items);
@@ -69,13 +71,23 @@ public sealed class CourseMaterialsHandlers(IApplicationDbContext db, ICurrentUs
 
         var material = await db.Materials.FirstOrDefaultAsync(m => m.Id == request.MaterialId, ct);
         if (material is null) return Result<LessonMaterialDto>.Fail("NOT_FOUND", "Material not found.");
-        // Spec #9: only materials belonging to this course are selectable.
-        if (material.CurriculumTemplateId != templateId)
-            return Result<LessonMaterialDto>.Fail("VALIDATION", "This material doesn't belong to the lesson's course.");
 
-        var existing = await db.CurriculumLessonMaterials.FirstOrDefaultAsync(
-            x => x.CurriculumLessonId == request.CurriculumLessonId
-                 && x.MaterialId == request.MaterialId && x.Section == request.Section, ct);
+        // Any material from the library can be attached (not just course-tagged ones).
+        // Target classes, if given, must be classes that actually follow this course.
+        var requestedClassIds = (request.ClassIds ?? Array.Empty<Guid>()).Where(c => c != Guid.Empty).Distinct().ToList();
+        if (requestedClassIds.Count > 0)
+        {
+            var courseClassIds = await db.Classes
+                .Where(c => c.CurriculumTemplateId == templateId).Select(c => c.Id).ToListAsync(ct);
+            if (requestedClassIds.Any(id => !courseClassIds.Contains(id)))
+                return Result<LessonMaterialDto>.Fail("VALIDATION", "One or more target classes aren't on this course.");
+        }
+
+        var existing = await db.CurriculumLessonMaterials
+            .Include(x => x.TargetClasses)
+            .FirstOrDefaultAsync(
+                x => x.CurriculumLessonId == request.CurriculumLessonId
+                     && x.MaterialId == request.MaterialId && x.Section == request.Section, ct);
         if (existing is null)
         {
             var nextOrder = await db.CurriculumLessonMaterials
@@ -83,12 +95,20 @@ public sealed class CourseMaterialsHandlers(IApplicationDbContext db, ICurrentUs
                 .CountAsync(ct);
             existing = new CurriculumLessonMaterial(request.CurriculumLessonId, request.MaterialId, request.Section, nextOrder);
             await db.CurriculumLessonMaterials.AddAsync(existing, ct);
-            await db.SaveChangesAsync(ct);
         }
+
+        // Replace the target-class set wholesale (deterministic; matches the UI's full re-selection).
+        if (existing.TargetClasses.Count > 0)
+            db.CurriculumLessonMaterialClasses.RemoveRange(existing.TargetClasses);
+        existing.TargetClasses.Clear();
+        foreach (var classId in requestedClassIds)
+            existing.TargetClasses.Add(new CurriculumLessonMaterialClass(existing.Id, classId));
+
+        await db.SaveChangesAsync(ct);
 
         return Result<LessonMaterialDto>.Ok(new LessonMaterialDto(
             existing.Id, material.Id, material.Title, material.Description, material.OriginalFileName,
-            material.MimeType, material.FileSize, existing.Section, existing.Order));
+            material.MimeType, material.FileSize, existing.Section, existing.Order, requestedClassIds));
     }
 
     public async Task<Result<bool>> Handle(DetachLessonMaterialCommand request, CancellationToken ct)
@@ -129,6 +149,8 @@ public sealed class CourseMaterialsHandlers(IApplicationDbContext db, ICurrentUs
             join u in db.CurriculumUnits on l.UnitId equals u.Id
             join mod in db.CurriculumModules on u.ModuleId equals mod.Id
             where mod.TemplateId == templateId
+                  // Per-attachment targeting: no target classes = all; otherwise this class must be one.
+                  && (!lm.TargetClasses.Any() || lm.TargetClasses.Any(tc => tc.ClassId == request.ClassId))
             orderby u.Order, l.Order, lm.Section, lm.Order
             select new
             {
@@ -145,6 +167,20 @@ public sealed class CourseMaterialsHandlers(IApplicationDbContext db, ICurrentUs
             .ToList();
 
         return Result<ClassLessonMaterialsDto>.Ok(new ClassLessonMaterialsDto(cls.Id, cls.Title, lessons));
+    }
+
+    public async Task<Result<IReadOnlyCollection<CourseClassDto>>> Handle(
+        GetCourseClassesQuery request, CancellationToken ct)
+    {
+        if (!await CanManageCourseAsync(request.CurriculumTemplateId, ct))
+            return Result<IReadOnlyCollection<CourseClassDto>>.Fail("FORBIDDEN", "You can't manage this course.");
+
+        var classes = await db.Classes.AsNoTracking()
+            .Where(c => c.CurriculumTemplateId == request.CurriculumTemplateId)
+            .OrderBy(c => c.Title)
+            .Select(c => new CourseClassDto(c.Id, c.Title))
+            .ToListAsync(ct);
+        return Result<IReadOnlyCollection<CourseClassDto>>.Ok(classes);
     }
 
     // ----- helpers ---------------------------------------------------------

@@ -14,7 +14,16 @@ public sealed record LessonMaterialDto(
     string MimeType,
     long FileSize,
     LessonMaterialSection Section,
-    int Order);
+    int Order,
+    /// <summary>Classes this attachment is restricted to. Empty = visible to every class on the course.</summary>
+    IReadOnlyCollection<Guid> ClassIds);
+
+/// <summary>A class that follows a course (curriculum template) — the targeting picker's source.</summary>
+public sealed record CourseClassDto(Guid Id, string Title);
+
+/// <summary>Classes on a course, for the per-material class-targeting picker in the builder.</summary>
+public sealed record GetCourseClassesQuery(Guid CurriculumTemplateId)
+    : IRequest<Result<IReadOnlyCollection<CourseClassDto>>>;
 
 /// <summary>A material available to attach for a course — the per-lesson picker's source.</summary>
 public sealed record CourseMaterialDto(
@@ -33,8 +42,14 @@ public sealed record GetLessonMaterialsQuery(Guid CurriculumLessonId)
 public sealed record GetCourseMaterialsQuery(Guid CurriculumTemplateId)
     : IRequest<Result<IReadOnlyCollection<CourseMaterialDto>>>;
 
-/// <summary>Attach a course material to a lesson under a section. Idempotent per (lesson, material, section).</summary>
-public sealed record AttachLessonMaterialCommand(Guid CurriculumLessonId, Guid MaterialId, LessonMaterialSection Section)
+/// <summary>
+/// Attach a material to a lesson under a section. Idempotent per (lesson, material,
+/// section): re-attaching updates the target classes. <paramref name="ClassIds"/>
+/// empty = visible to every class on the course; otherwise restricted to those classes.
+/// </summary>
+public sealed record AttachLessonMaterialCommand(
+    Guid CurriculumLessonId, Guid MaterialId, LessonMaterialSection Section,
+    IReadOnlyCollection<Guid>? ClassIds = null)
     : IRequest<Result<LessonMaterialDto>>;
 
 /// <summary>Remove a material from a lesson's section.</summary>

@@ -25,6 +25,7 @@ public interface IApplicationDbContext
     DbSet<CurriculumUnit> CurriculumUnits { get; }
     DbSet<CurriculumLesson> CurriculumLessons { get; }
     DbSet<CurriculumLessonMaterial> CurriculumLessonMaterials { get; }
+    DbSet<CurriculumLessonMaterialClass> CurriculumLessonMaterialClasses { get; }
     DbSet<CurriculumPlanDay> CurriculumPlanDays { get; }
     DbSet<CurriculumPlanDayLesson> CurriculumPlanDayLessons { get; }
     DbSet<LessonDefaultTask> LessonDefaultTasks { get; }
