@@ -61,6 +61,13 @@ public sealed class SubmissionsHandlers(
                 return Result<IReadOnlyCollection<SubmissionDto>>.Fail(
                     "FORBIDDEN", "Caller is neither a student nor staff.");
         }
+        // A teacher may read a class's submission roster only for their own classes
+        // (admins/co-teachers/the author pass); this used to be any staff → any class.
+        else if (!await CanManageSubmissionAsync(request.AssignmentId, cancellationToken))
+        {
+            return Result<IReadOnlyCollection<SubmissionDto>>.Fail(
+                "FORBIDDEN", "You can only view submissions for your own classes.");
+        }
 
         var query = db.Submissions.AsNoTracking()
             .Where(x => x.AssignmentId == request.AssignmentId);
