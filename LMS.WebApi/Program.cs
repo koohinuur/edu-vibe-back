@@ -50,7 +50,13 @@ builder.Services.AddControllers()
             return new BadRequestObjectResult(
                 LMS.WebApi.Common.ApiResponse<object>.Fail(firstMessage, errors));
         };
-    });
+    })
+    // Accept enums from a number OR a string (name/numeric-string) on input while
+    // still writing numbers — a client that echoes back a string enum value no
+    // longer fails the whole body with "The cmd field is required." See
+    // LMS.WebApi.Serialization.TolerantEnumConverter.
+    .AddJsonOptions(o => o.JsonSerializerOptions.Converters.Add(
+        new LMS.WebApi.Serialization.TolerantEnumConverterFactory()));
 
 // ---- Output caching -------------------------------------------------------
 // Short-lived server-side cache for the anonymous marketing read endpoints so
