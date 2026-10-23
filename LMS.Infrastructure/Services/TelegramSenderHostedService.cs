@@ -49,11 +49,24 @@ internal sealed class TelegramSenderHostedService : BackgroundService
     {
         if (!_options.IsEnabled) return;
 
+        // Rate-limit so a broadcast stays under Telegram's ~30/sec bot limit and
+        // doesn't trigger a 429 storm. Pace from the end of each send (slightly
+        // under the configured rate, which is the safe side).
+        var interval = TimeSpan.FromMilliseconds(1000.0 / Math.Max(1, _options.SendsPerSecond));
+        var nextSlot = DateTime.UtcNow;
+
         try
         {
             await foreach (var message in _notifier.Reader.ReadAllAsync(stoppingToken))
             {
+                var now = DateTime.UtcNow;
+                if (nextSlot > now)
+                {
+                    try { await Task.Delay(nextSlot - now, stoppingToken); }
+                    catch (OperationCanceledException) { return; }
+                }
                 await SendWithRetryAsync(message, stoppingToken);
+                nextSlot = DateTime.UtcNow + interval;
             }
         }
         catch (OperationCanceledException)
