@@ -1,5 +1,6 @@
 using LMS.Application.Common.Abstractions;
 using LMS.Application.Common.Models;
+using LMS.Application.Common.Security;
 using LMS.Domain.Entities;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -15,6 +16,7 @@ public sealed class SubmissionsHandlers(
     IRequestHandler<ReturnSubmissionCommand, Result<SubmissionDto>>,
     IRequestHandler<GetAssignmentSubmissionsQuery, Result<IReadOnlyCollection<SubmissionDto>>>,
     IRequestHandler<GetStudentSubmissionsQuery, Result<IReadOnlyCollection<SubmissionDto>>>,
+    IRequestHandler<GetSubmissionsByAssignmentsQuery, Result<IReadOnlyCollection<SubmissionDto>>>,
     IRequestHandler<AddSubmissionFileCommand, Result<SubmissionFileDto>>,
     IRequestHandler<RemoveSubmissionFileCommand, Result<string>>,
     IRequestHandler<GetSubmissionFilesQuery, Result<IReadOnlyCollection<SubmissionFileDto>>>,
@@ -73,6 +75,31 @@ public sealed class SubmissionsHandlers(
             .Select(s => new SubmissionDto(s.Id, s.AssignmentId, s.StudentProfileId, s.Content, s.Status, s.Score,
                 s.IsLocked, s.Files.Count, s.MaxScore, s.Feedback))
             .ToListAsync(cancellationToken));
+    }
+
+    public async Task<Result<IReadOnlyCollection<SubmissionDto>>> Handle(
+        GetSubmissionsByAssignmentsQuery request, CancellationToken ct)
+    {
+        var ids = request.AssignmentIds?.Distinct().ToList() ?? new List<Guid>();
+        if (ids.Count == 0)
+            return Result<IReadOnlyCollection<SubmissionDto>>.Ok(Array.Empty<SubmissionDto>());
+        // Teacher/admin board read only — a student must not enumerate class rosters.
+        if (!CallerIsStaff)
+            return Result<IReadOnlyCollection<SubmissionDto>>.Fail("FORBIDDEN", "Staff only.");
+
+        var isAdmin = currentUser.IsAdmin();
+        var uid = currentUser.UserId;
+        var items = await (
+            from s in db.Submissions.AsNoTracking()
+            join a in db.Assignments on s.AssignmentId equals a.Id
+            join c in db.Classes on a.ClassId equals c.Id
+            where ids.Contains(s.AssignmentId)
+                  && (isAdmin || c.TeacherUserId == uid || a.CreatedByTeacherId == uid
+                      || db.ClassTeachers.Any(t => t.ClassId == c.Id && t.UserId == uid))
+            select new SubmissionDto(s.Id, s.AssignmentId, s.StudentProfileId, s.Content, s.Status, s.Score,
+                s.IsLocked, s.Files.Count, s.MaxScore, s.Feedback))
+            .ToListAsync(ct);
+        return Result<IReadOnlyCollection<SubmissionDto>>.Ok(items);
     }
 
     public async Task<Result<SubmissionDto>> Handle(GradeSubmissionCommand request, CancellationToken cancellationToken)

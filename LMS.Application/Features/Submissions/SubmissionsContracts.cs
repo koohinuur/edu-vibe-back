@@ -63,6 +63,14 @@ public sealed record GetAssignmentSubmissionsQuery(Guid AssignmentId)
 public sealed record GetStudentSubmissionsQuery(Guid StudentProfileId)
     : IRequest<Result<IReadOnlyCollection<SubmissionDto>>>;
 
+/// <summary>
+/// Submissions for many assignments in ONE query — the homework board's batch read
+/// (replaces one HTTP call per assignment). Scoped: a teacher gets only submissions
+/// for assignments in their own classes (admins/co-teachers/the author included).
+/// </summary>
+public sealed record GetSubmissionsByAssignmentsQuery(IReadOnlyCollection<Guid> AssignmentIds)
+    : IRequest<Result<IReadOnlyCollection<SubmissionDto>>>;
+
 // ---- File submissions + anti-cheat ----------------------------------------
 
 /// <summary>
