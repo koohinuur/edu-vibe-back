@@ -96,6 +96,11 @@ public sealed class SubmissionsHandlers(
             where ids.Contains(s.AssignmentId)
                   && (isAdmin || c.TeacherUserId == uid || a.CreatedByTeacherId == uid
                       || db.ClassTeachers.Any(t => t.ClassId == c.Id && t.UserId == uid))
+                  // Hide students who dropped out of the group — only still-active
+                  // enrollments show on the homework board (counts + drill-down).
+                  && db.Enrollments.Any(e => e.ClassId == c.Id
+                      && e.StudentProfileId == s.StudentProfileId
+                      && e.Status == LMS.Domain.Enums.EnrollmentStatus.Active)
             select new SubmissionDto(s.Id, s.AssignmentId, s.StudentProfileId, s.Content, s.Status, s.Score,
                 s.IsLocked, s.Files.Count, s.MaxScore, s.Feedback))
             .ToListAsync(ct);
