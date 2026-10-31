@@ -1,5 +1,6 @@
 using LMS.Application.Common.Abstractions;
 using LMS.Application.Common.Models;
+using LMS.Application.Common.Security;
 using LMS.Domain.Entities;
 using LMS.Domain.Enums;
 using MediatR;
@@ -22,8 +23,59 @@ public sealed class ClassesHandlers(IApplicationDbContext db, ICurrentUserServic
     IRequestHandler<EnrollStudentCommand, Result>,
     IRequestHandler<RemoveStudentFromClassCommand, Result>,
     IRequestHandler<GetClassStudentsQuery, Result<IReadOnlyCollection<Guid>>>,
+    IRequestHandler<GetClassRostersQuery, Result<IReadOnlyCollection<ClassRosterDto>>>,
     IRequestHandler<GetGroupTypesQuery, Result<IReadOnlyCollection<string>>>
 {
+    public async Task<Result<IReadOnlyCollection<ClassRosterDto>>> Handle(
+        GetClassRostersQuery request, CancellationToken ct)
+    {
+        var ids = request.ClassIds?.Distinct().ToList() ?? new List<Guid>();
+        if (ids.Count == 0)
+            return Result<IReadOnlyCollection<ClassRosterDto>>.Ok(Array.Empty<ClassRosterDto>());
+
+        // Classes the caller may view: admin → all requested; else only ones they
+        // teach (primary or co-teacher).
+        var uid = currentUser.UserId;
+        var allowed = currentUser.IsAdmin()
+            ? ids
+            : await db.Classes
+                .Where(c => ids.Contains(c.Id)
+                    && (c.TeacherUserId == uid || db.ClassTeachers.Any(t => t.ClassId == c.Id && t.UserId == uid)))
+                .Select(c => c.Id).ToListAsync(ct);
+        if (allowed.Count == 0)
+            return Result<IReadOnlyCollection<ClassRosterDto>>.Ok(Array.Empty<ClassRosterDto>());
+
+        var rows = await (
+            from e in db.Enrollments.AsNoTracking()
+            where allowed.Contains(e.ClassId)
+            join sp in db.StudentProfiles on e.StudentProfileId equals sp.Id
+            join u in db.Users on sp.UserId equals u.Id into uj
+            from u in uj.DefaultIfEmpty()
+            select new
+            {
+                e.ClassId, sp.Id, sp.FirstName, sp.LastName,
+                Email = u != null ? u.Email : null, e.Status,
+            }).ToListAsync(ct);
+
+        var grouped = rows
+            .GroupBy(r => r.ClassId)
+            .Select(g => new ClassRosterDto(
+                g.Key,
+                g.OrderBy(r => r.Status == EnrollmentStatus.Dropped) // active first, dropped last
+                    .Select(r => new ClassRosterStudentDto(
+                        r.Id, RosterName(r.FirstName, r.LastName, r.Email, r.Id),
+                        r.Status == EnrollmentStatus.Dropped))
+                    .ToList()))
+            .ToList();
+        return Result<IReadOnlyCollection<ClassRosterDto>>.Ok(grouped);
+    }
+
+    private static string RosterName(string? first, string? last, string? email, Guid id)
+    {
+        var name = string.Join(" ", new[] { first, last }.Where(x => !string.IsNullOrWhiteSpace(x))).Trim();
+        return name.Length > 0 ? name : (email ?? $"Student #{id.ToString()[..6]}");
+    }
+
     public async Task<Result> Handle(CancelClassCommand request, CancellationToken cancellationToken)
     {
         var c = await db.Classes.FirstOrDefaultAsync(x => x.Id == request.ClassId, cancellationToken);

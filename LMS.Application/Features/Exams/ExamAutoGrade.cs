@@ -24,17 +24,69 @@ public static class ExamAutoGrade
     public static (int Raw, int Total)? Grade(string? answerKeyJson, string? answersJson)
     {
         var key = ParseKey(answerKeyJson);
-        if (key is null || key.Count == 0) return null;
+        if (key is not null && key.Count > 0)
+        {
+            var given = ParseGiven(answersJson);
+            if (given is null) return null; // malformed / no captured answers → skip
 
-        var given = ParseGiven(answersJson);
-        if (given is null) return null; // malformed / no captured answers → skip
+            var raw = 0;
+            foreach (var (label, accepted) in key)
+                if (given.TryGetValue(label, out var studentAnswer) && accepted.Contains(studentAnswer))
+                    raw++;
+            return (raw, key.Count);
+        }
 
-        var raw = 0;
-        foreach (var (label, accepted) in key)
-            if (given.TryGetValue(label, out var studentAnswer) && accepted.Contains(studentAnswer))
-                raw++;
+        // No answer key uploaded → grade from the test's OWN captured verdict
+        // (the HTML paper reports per-question "ok" and/or the "correct" answer),
+        // so Listening/Reading papers with embedded answers need no key.
+        return GradeFromCaptured(answersJson);
+    }
 
-        return (raw, key.Count);
+    /// <summary>
+    /// Grades from the captured blob's own verdict: counts questions the test marked
+    /// with <c>ok</c> (boolean) or carried a <c>correct</c> value for, and how many
+    /// the student got right. Returns null when the test reported no verdict at all.
+    /// </summary>
+    private static (int Raw, int Total)? GradeFromCaptured(string? answersJson)
+    {
+        if (string.IsNullOrWhiteSpace(answersJson)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(answersJson);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return null;
+            if (!doc.RootElement.TryGetProperty("answers", out var answers) || answers.ValueKind != JsonValueKind.Array)
+                return null;
+
+            int raw = 0, total = 0;
+            foreach (var a in answers.EnumerateArray())
+            {
+                if (a.ValueKind != JsonValueKind.Object) continue;
+
+                var hasOk = a.TryGetProperty("ok", out var okEl)
+                            && okEl.ValueKind is JsonValueKind.True or JsonValueKind.False;
+                var correct = a.TryGetProperty("correct", out var cEl)
+                    ? (cEl.ValueKind == JsonValueKind.Number ? cEl.ToString()
+                        : cEl.ValueKind == JsonValueKind.String ? cEl.GetString() : null)
+                    : null;
+                var hasCorrect = !string.IsNullOrWhiteSpace(correct);
+                if (!hasOk && !hasCorrect) continue; // no verdict → not a gradable question
+
+                total++;
+                if (hasOk)
+                {
+                    if (okEl.GetBoolean()) raw++;
+                }
+                else
+                {
+                    var given = a.TryGetProperty("given", out var g)
+                        ? (g.ValueKind == JsonValueKind.Number ? g.ToString() : g.GetString()) : null;
+                    var nc = Norm(correct);
+                    if (nc.Length > 0 && Norm(given) == nc) raw++;
+                }
+            }
+            return total == 0 ? null : (raw, total);
+        }
+        catch (JsonException) { return null; }
     }
 
     /// <summary>Parses the key into label → set of accepted (normalised) answers. Null on bad JSON.</summary>

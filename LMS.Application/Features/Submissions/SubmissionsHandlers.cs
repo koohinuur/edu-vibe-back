@@ -1,5 +1,6 @@
 using LMS.Application.Common.Abstractions;
 using LMS.Application.Common.Models;
+using LMS.Application.Common.Security;
 using LMS.Domain.Entities;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
@@ -15,6 +16,7 @@ public sealed class SubmissionsHandlers(
     IRequestHandler<ReturnSubmissionCommand, Result<SubmissionDto>>,
     IRequestHandler<GetAssignmentSubmissionsQuery, Result<IReadOnlyCollection<SubmissionDto>>>,
     IRequestHandler<GetStudentSubmissionsQuery, Result<IReadOnlyCollection<SubmissionDto>>>,
+    IRequestHandler<GetSubmissionsByAssignmentsQuery, Result<IReadOnlyCollection<SubmissionDto>>>,
     IRequestHandler<AddSubmissionFileCommand, Result<SubmissionFileDto>>,
     IRequestHandler<RemoveSubmissionFileCommand, Result<string>>,
     IRequestHandler<GetSubmissionFilesQuery, Result<IReadOnlyCollection<SubmissionFileDto>>>,
@@ -73,6 +75,36 @@ public sealed class SubmissionsHandlers(
             .Select(s => new SubmissionDto(s.Id, s.AssignmentId, s.StudentProfileId, s.Content, s.Status, s.Score,
                 s.IsLocked, s.Files.Count, s.MaxScore, s.Feedback))
             .ToListAsync(cancellationToken));
+    }
+
+    public async Task<Result<IReadOnlyCollection<SubmissionDto>>> Handle(
+        GetSubmissionsByAssignmentsQuery request, CancellationToken ct)
+    {
+        var ids = request.AssignmentIds?.Distinct().ToList() ?? new List<Guid>();
+        if (ids.Count == 0)
+            return Result<IReadOnlyCollection<SubmissionDto>>.Ok(Array.Empty<SubmissionDto>());
+        // Teacher/admin board read only — a student must not enumerate class rosters.
+        if (!CallerIsStaff)
+            return Result<IReadOnlyCollection<SubmissionDto>>.Fail("FORBIDDEN", "Staff only.");
+
+        var isAdmin = currentUser.IsAdmin();
+        var uid = currentUser.UserId;
+        var items = await (
+            from s in db.Submissions.AsNoTracking()
+            join a in db.Assignments on s.AssignmentId equals a.Id
+            join c in db.Classes on a.ClassId equals c.Id
+            where ids.Contains(s.AssignmentId)
+                  && (isAdmin || c.TeacherUserId == uid || a.CreatedByTeacherId == uid
+                      || db.ClassTeachers.Any(t => t.ClassId == c.Id && t.UserId == uid))
+                  // Hide students who dropped out of the group — only still-active
+                  // enrollments show on the homework board (counts + drill-down).
+                  && db.Enrollments.Any(e => e.ClassId == c.Id
+                      && e.StudentProfileId == s.StudentProfileId
+                      && e.Status == LMS.Domain.Enums.EnrollmentStatus.Active)
+            select new SubmissionDto(s.Id, s.AssignmentId, s.StudentProfileId, s.Content, s.Status, s.Score,
+                s.IsLocked, s.Files.Count, s.MaxScore, s.Feedback))
+            .ToListAsync(ct);
+        return Result<IReadOnlyCollection<SubmissionDto>>.Ok(items);
     }
 
     public async Task<Result<SubmissionDto>> Handle(GradeSubmissionCommand request, CancellationToken cancellationToken)
@@ -296,16 +328,26 @@ public sealed class SubmissionsHandlers(
         if (submission.Files.Any(f => f.Sha256 == request.Sha256))
             return Result<SubmissionFileDto>.Fail("DUPLICATE", "You've already uploaded an identical file.");
 
-        // ANTI-CHEAT: flag the exact same bytes appearing under another
-        // student for this assignment. Flag, don't block — the teacher judges.
-        var crossDup = await db.SubmissionFiles
-            .Where(f => f.Sha256 == request.Sha256)
-            .Join(db.Submissions, f => f.SubmissionId, s => s.Id, (f, s) => s)
-            .AnyAsync(s => s.AssignmentId == request.AssignmentId && s.StudentProfileId != me.Value, ct);
+        // ANTI-CHEAT: the exact same bytes appearing under ANOTHER student for this
+        // assignment is a copy signal. Flag BOTH sides (this upload AND the matching
+        // files already uploaded by other students) so the teacher sees every copy,
+        // not just whoever happened to submit last. Flag, don't block — teacher judges.
+        var otherStudentFiles = await db.SubmissionFiles
+            .Where(f => f.Sha256 == request.Sha256
+                && db.Submissions.Any(s => s.Id == f.SubmissionId
+                    && s.AssignmentId == request.AssignmentId
+                    && s.StudentProfileId != me.Value))
+            .ToListAsync(ct);
+        var crossDup = otherStudentFiles.Count > 0;
 
         var file = new SubmissionFile(submission.Id, request.StoredFileName, request.OriginalFileName,
             request.MimeType, request.FileSize, request.Sha256);
-        if (crossDup) file.FlagAsCrossStudentDuplicate();
+        if (crossDup)
+        {
+            file.FlagAsCrossStudentDuplicate();
+            foreach (var other in otherStudentFiles)
+                if (!other.IsDuplicateAcrossStudents) other.FlagAsCrossStudentDuplicate();
+        }
         await db.SubmissionFiles.AddAsync(file, ct);
         db.SubmissionAudits.Add(new SubmissionAudit(submission.Id, currentUser.UserId, "file-uploaded",
             crossDup ? $"{request.OriginalFileName} [duplicate-flagged]" : request.OriginalFileName));

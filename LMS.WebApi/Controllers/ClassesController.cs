@@ -69,6 +69,21 @@ public sealed class ClassesController(ISender sender) : ControllerBase
         return Ok(ApiResponse<IReadOnlyCollection<Guid>>.Ok(r.Data, r.Message));
     }
 
+    /// <summary>Rosters (with names + dropped flag) for many classes in one call — ?ids=g1,g2.
+    /// Scoped to classes the caller teaches (admins see all). The homework board's batch read.</summary>
+    [HttpGet("rosters")]
+    [PermissionAuthorize(Permissions.Classes.Read)]
+    public async Task<ActionResult<ApiResponse<IReadOnlyCollection<ClassRosterDto>>>> Rosters(
+        [FromQuery] string? ids, CancellationToken ct)
+    {
+        var classIds = (ids ?? "")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(x => Guid.TryParse(x, out var g) ? g : (Guid?)null)
+            .Where(g => g is not null).Select(g => g!.Value).ToList();
+        var r = await sender.Send(new GetClassRostersQuery(classIds), ct);
+        return Ok(ApiResponse<IReadOnlyCollection<ClassRosterDto>>.Ok(r.Data, r.Message));
+    }
+
     /// <summary>
     /// Class engagement + outcomes: attendance rate, average grade, assignment +
     /// lesson completion rates, and at-risk students. Self-scoped in the handler

@@ -19,6 +19,20 @@ public sealed record CreateClassCommand(
     string Title, int MaxStudents, Modality Modality, Guid? TeacherUserId, string? GroupType = null)
     : IRequest<Result<ClassDto>>;
 
+/// <summary>One roster entry: the student, their display name, and whether they've dropped out.</summary>
+public sealed record ClassRosterStudentDto(Guid StudentProfileId, string Name, bool Dropped);
+
+/// <summary>A class's full roster (active + dropped, flagged) with names.</summary>
+public sealed record ClassRosterDto(Guid ClassId, IReadOnlyCollection<ClassRosterStudentDto> Students);
+
+/// <summary>
+/// Rosters (with names + dropped flag) for many classes in ONE query — the homework
+/// board's batch read (replaces one roster call per class AND the whole-student-list
+/// fetch for names). Scoped to classes the caller teaches (admins see all requested).
+/// </summary>
+public sealed record GetClassRostersQuery(IReadOnlyCollection<Guid> ClassIds)
+    : IRequest<Result<IReadOnlyCollection<ClassRosterDto>>>;
+
 public sealed record UpdateClassCommand(
     Guid ClassId,
     string Title,
