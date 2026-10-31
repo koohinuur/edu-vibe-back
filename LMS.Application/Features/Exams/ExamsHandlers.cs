@@ -213,12 +213,11 @@ public sealed class ExamsHandlers(IApplicationDbContext db, ICurrentUserService 
         var (exam, code, msg) = await ResolveOwnedExamAsync(request.ExamId, ct, tracking: true);
         if (exam is null) return Result<ExamRosterDto>.Fail(code!, msg!);
 
-        var hasKey = exam.Sections.Any(s =>
-            (s.Kind == ExamSectionKind.Listening || s.Kind == ExamSectionKind.Reading)
-            && !string.IsNullOrWhiteSpace(s.AnswerKey));
-        if (!hasKey)
+        var hasLR = exam.Sections.Any(s =>
+            s.Kind == ExamSectionKind.Listening || s.Kind == ExamSectionKind.Reading);
+        if (!hasLR)
             return Result<ExamRosterDto>.Fail("VALIDATION",
-                "No Listening/Reading section has an answer key. Add a key on the exam first.");
+                "This exam has no Listening/Reading section to auto-grade.");
 
         // Target: one student, or every active-enrolled student in the class.
         List<Guid> targetIds;

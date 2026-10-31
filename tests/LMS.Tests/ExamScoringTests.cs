@@ -160,9 +160,41 @@ public sealed class ExamScoringTests
     [Fact]
     public void Grade_returns_null_when_nothing_to_grade()
     {
-        ExamAutoGrade.Grade(null, """{ "answers": [] }""").Should().BeNull();        // no key
         ExamAutoGrade.Grade("""{ "q1": "A" }""", null).Should().BeNull();            // no answers
         ExamAutoGrade.Grade("""{ "q1": "A" }""", "not json").Should().BeNull();      // malformed
         ExamAutoGrade.Grade("""{ "q1": "A" }""", """{ "answers": [] }""").Should().BeNull(); // empty answers
+        ExamAutoGrade.Grade(null, """{ "answers": [{ "q": "q1", "given": "A" }] }""").Should().BeNull(); // no key AND no verdict
+    }
+
+    // ---- no key → grade from the test's own captured verdict ----------------
+    [Fact]
+    public void Grade_uses_captured_ok_when_no_key()
+    {
+        const string answers = """
+            { "answers": [
+              { "q": "q1", "given": "A", "ok": true },
+              { "q": "q2", "given": "D", "ok": false },
+              { "q": "q3", "given": "C", "ok": true },
+              { "q": "slider", "given": "7" }
+            ] }
+            """;
+        var r = ExamAutoGrade.Grade(null, answers);
+        r.Should().NotBeNull();
+        r!.Value.Raw.Should().Be(2);   // q1 + q3
+        r.Value.Total.Should().Be(3);  // the slider has no verdict → ignored
+    }
+
+    [Fact]
+    public void Grade_uses_captured_correct_when_no_key()
+    {
+        const string answers = """
+            { "answers": [
+              { "q": "q1", "given": "a", "correct": "A" },
+              { "q": "q2", "given": "x", "correct": "B" }
+            ] }
+            """;
+        var r = ExamAutoGrade.Grade("", answers); // empty key also falls back to captured
+        r!.Value.Raw.Should().Be(1);   // q1 matches (case-insensitive)
+        r.Value.Total.Should().Be(2);
     }
 }
