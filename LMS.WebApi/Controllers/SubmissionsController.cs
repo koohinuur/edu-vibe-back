@@ -34,6 +34,17 @@ public sealed class SubmissionsController(ISender sender, ISubmissionFileStore f
         return Ok(ApiResponse<IReadOnlyCollection<SubmissionDto>>.Ok(r.Data, r.Message));
     }
 
+    public sealed record ByAssignmentsRequest(IReadOnlyCollection<Guid>? AssignmentIds);
+
+    /// <summary>Submissions for many assignments in one call (the homework board batch read).
+    /// POST so a large id set isn't capped by the query-string length.</summary>
+    [HttpPost("by-assignments")]
+    [PermissionAuthorize(Permissions.Submissions.Read)]
+    public async Task<ActionResult<ApiResponse<IReadOnlyCollection<SubmissionDto>>>> ByAssignments(
+        [FromBody] ByAssignmentsRequest body, CancellationToken ct)
+        => (await sender.Send(
+            new GetSubmissionsByAssignmentsQuery(body.AssignmentIds ?? Array.Empty<Guid>()), ct)).ToApiResult();
+
     [HttpPost]
     [PermissionAuthorize(Permissions.Submissions.Create)]
     public async Task<ActionResult<ApiResponse<SubmissionDto>>> Submit([FromBody] SubmitAssignmentCommand cmd,
