@@ -21,9 +21,11 @@ public static class ExamAutoGradeRunner
         IApplicationDbContext db, Exam exam, IReadOnlyCollection<Guid> studentIds,
         Guid enteredByUserId, DateTime now, CancellationToken ct)
     {
+        // All Listening/Reading sections are candidates — ExamAutoGrade.Grade uses the
+        // section's answer key when one is set, otherwise the HTML test's own captured
+        // verdict; a section it can't grade is simply skipped below.
         var gradable = exam.Sections
-            .Where(s => (s.Kind == ExamSectionKind.Listening || s.Kind == ExamSectionKind.Reading)
-                        && !string.IsNullOrWhiteSpace(s.AnswerKey))
+            .Where(s => s.Kind == ExamSectionKind.Listening || s.Kind == ExamSectionKind.Reading)
             .ToList();
         if (gradable.Count == 0 || studentIds.Count == 0) return 0;
 
