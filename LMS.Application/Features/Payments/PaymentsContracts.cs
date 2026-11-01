@@ -15,11 +15,13 @@ public sealed record PaymentDto(
     PaymentStatus Status,
     // Student's display name (first + last, falling back to email). Populated by
     // the list/by-student queries so admin tables show a name, not an id.
-    string? StudentName = null);
+    string? StudentName = null,
+    // Free-text staff note attached to the payment.
+    string? Comment = null);
 
 public sealed record CreatePaymentCommand(
     Guid StudentProfileId, Guid ClassId, DateOnly PeriodMonth, decimal Amount, PaymentMethod Method,
-    Currency Currency = Currency.UZS)
+    Currency Currency = Currency.UZS, string? Comment = null)
     : IRequest<Result<PaymentDto>>;
 
 public sealed record MarkPaymentPaidCommand(Guid PaymentId) : IRequest<Result<PaymentDto>>;

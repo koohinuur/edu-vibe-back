@@ -14,7 +14,7 @@ public sealed class Payment : BaseEntity
     /// null ClassId). PeriodMonth is normalised to the 1st of the month.
     /// </summary>
     public Payment(Guid studentProfileId, Guid classId, DateOnly periodMonth, decimal amount, PaymentMethod method,
-        Currency currency = Currency.UZS)
+        Currency currency = Currency.UZS, string? comment = null)
     {
         if (studentProfileId == Guid.Empty) throw new DomainException("Student profile id is required.");
         if (classId == Guid.Empty) throw new DomainException("Class is required.");
@@ -27,6 +27,7 @@ public sealed class Payment : BaseEntity
         Method = method;
         Currency = currency;
         Status = PaymentStatus.Pending;
+        SetComment(comment);
     }
 
     public Guid StudentProfileId { get; private set; }
@@ -44,6 +45,18 @@ public sealed class Payment : BaseEntity
     /// <summary>Currency of <see cref="Amount"/>. Defaults to UZS for legacy rows.</summary>
     public Currency Currency { get; private set; }
     public PaymentStatus Status { get; private set; }
+
+    /// <summary>Free-text note the staff can attach to a payment (e.g. "paid in cash to Aziza", "partial"). Max 500 chars.</summary>
+    public string? Comment { get; private set; }
+
+    /// <summary>Sets (or clears) the payment note. Trims; null/blank clears it.</summary>
+    public void SetComment(string? comment)
+    {
+        var trimmed = string.IsNullOrWhiteSpace(comment) ? null : comment.Trim();
+        if (trimmed is { Length: > 500 }) throw new DomainException("Comment must be 500 characters or fewer.");
+        Comment = trimmed;
+        Touch();
+    }
 
     public void MarkPaid()
     {
