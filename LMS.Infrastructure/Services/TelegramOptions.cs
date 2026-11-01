@@ -64,9 +64,18 @@ public sealed class TelegramOptions
     /// <summary>
     /// Bounded in-memory queue depth. New writes drop the oldest message when
     /// full so a Telegram outage can never block the API thread or balloon
-    /// memory. Default 256 ≈ a few minutes of normal traffic.
+    /// memory. Default 10000 — big enough to hold a whole-academy broadcast
+    /// without dropping; a burst larger than this still drops oldest-first.
+    /// (For guaranteed delivery at very large scale, back this with a durable
+    /// outbox table instead of an in-memory channel.)
     /// </summary>
-    public int QueueCapacity { get; init; } = 256;
+    public int QueueCapacity { get; init; } = 10_000;
+
+    /// <summary>
+    /// Max messages/second the sender worker delivers, to stay under Telegram's
+    /// ~30/sec bot limit and avoid a 429 storm on a broadcast. Default 25.
+    /// </summary>
+    public int SendsPerSecond { get; init; } = 25;
 
     /// <summary>Total attempts (including the first) before a message is dropped.</summary>
     public int MaxAttempts { get; init; } = 4;
