@@ -32,6 +32,14 @@ public sealed class LMSDbContext : DbContext, IApplicationDbContext
         });
     }
 
+    public Task AcquireAdvisoryLockAsync(Guid key, CancellationToken cancellationToken) =>
+        // pg_advisory_xact_lock(bigint) blocks until the lock is free and releases it
+        // automatically when the transaction ends. We fold the Guid down to a stable
+        // bigint with hashtextextended so the lock can be keyed on a domain id without a
+        // lock table. Parameterised, so the key never lands in SQL text.
+        Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT pg_advisory_xact_lock(hashtextextended({key.ToString()}, 0))", cancellationToken);
+
     public DbSet<User> Users => Set<User>();
     public DbSet<Role> Roles => Set<Role>();
     public DbSet<Permission> Permissions => Set<Permission>();

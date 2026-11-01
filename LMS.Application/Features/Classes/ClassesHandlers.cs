@@ -168,58 +168,58 @@ public sealed class ClassesHandlers(IApplicationDbContext db, ICurrentUserServic
 
     public async Task<Result> Handle(EnrollStudentCommand request, CancellationToken cancellationToken)
     {
-        // We do the validation + insert as discrete queries instead of going
-        // through Class.EnrollStudent. The previous implementation loaded the
-        // Class with its Enrollments collection, mutated it, and called
-        // Class.Touch() — which made SaveChanges issue both an INSERT
-        // (enrollments) AND an UPDATE (classes.UpdatedAt) in the same batch.
-        // PostgreSQL 18 + Npgsql 8.0.11 reproducibly mis-reports the affected
-        // row count for that batch, so EF throws DbUpdateConcurrencyException
-        // ("expected 1 row, affected 0") even though the rows would have
-        // landed correctly. Keeping the operation to a single INSERT skips
-        // the batched UPDATE that triggers the bug.
-        var classExists = await db.Classes
-            .AsNoTracking()
-            .AnyAsync(c => c.Id == request.ClassId, cancellationToken);
-        if (!classExists) return Result.Fail("NOT_FOUND", "Class not found.");
-
-        var maxStudents = await db.Classes
-            .AsNoTracking()
-            .Where(c => c.Id == request.ClassId)
-            .Select(c => c.MaxStudents)
-            .FirstAsync(cancellationToken);
-
-        var activeCount = await db.Enrollments
-            .AsNoTracking()
-            .CountAsync(e => e.ClassId == request.ClassId
-                         && e.Status == EnrollmentStatus.Active, cancellationToken);
-        if (activeCount >= maxStudents)
-            return Result.Fail("VALIDATION", "Class is full.");
-
-        // The unique index `IX_enrollments_ClassId_StudentProfileId` covers
-        // every status — so a row left behind by a previous Drop blocks a
-        // fresh INSERT. Reactivate it instead of trying to add a new one;
-        // domain still treats this as a fresh enrolment.
-        var existing = await db.Enrollments
-            .FirstOrDefaultAsync(e => e.ClassId == request.ClassId
-                                   && e.StudentProfileId == request.StudentProfileId,
-                                 cancellationToken);
-
-        if (existing is not null)
+        // Capacity is a check-then-insert: the count and the INSERT are separate
+        // statements, so two concurrent enrolments can each read activeCount == max-1,
+        // both pass the gate, and both insert — over-filling the class. The unique index
+        // `IX_enrollments_ClassId_StudentProfileId` only blocks the SAME student twice,
+        // never two different students racing for the last seat. Serialise all enrolments
+        // for THIS class on a transaction-scoped advisory lock so the count+insert runs
+        // exclusively; enrolments into other classes never block each other, and the lock
+        // releases when the transaction ends.
+        //
+        // Each path still issues a single INSERT or a single UPDATE (never the batched
+        // enrollments-INSERT + classes.UpdatedAt-UPDATE that PostgreSQL 18 + Npgsql
+        // 8.0.11 mis-report the affected-row count for, throwing a bogus
+        // DbUpdateConcurrencyException): we go through discrete queries, not
+        // Class.EnrollStudent/Class.Touch.
+        return await db.ExecuteInTransactionAsync<string>(async () =>
         {
-            if (existing.Status == EnrollmentStatus.Active)
-                return Result.Fail("VALIDATION", "Student is already enrolled.");
-            // Status was Dropped (or other) — flip back to Active.
-            existing.Activate();
-            await db.SaveChangesAsync(cancellationToken);
-            return Result.Ok("Enrolled");
-        }
+            await db.AcquireAdvisoryLockAsync(request.ClassId, cancellationToken);
 
-        var enrollment = Enrollment.Create(request.ClassId, request.StudentProfileId,
-            Array.Empty<Enrollment>());
-        await db.Enrollments.AddAsync(enrollment, cancellationToken);
-        await db.SaveChangesAsync(cancellationToken);
-        return Result.Ok("Enrolled");
+            var klass = await db.Classes
+                .AsNoTracking()
+                .Where(c => c.Id == request.ClassId)
+                .Select(c => new { c.MaxStudents })
+                .FirstOrDefaultAsync(cancellationToken);
+            if (klass is null) return Result<string>.Fail("NOT_FOUND", "Class not found.");
+
+            // The unique index covers every status, so a row left behind by a previous
+            // Drop still exists — reactivate it rather than inserting a duplicate. An
+            // already-active student is reported as such regardless of capacity.
+            var existing = await db.Enrollments
+                .FirstOrDefaultAsync(e => e.ClassId == request.ClassId
+                                       && e.StudentProfileId == request.StudentProfileId,
+                                     cancellationToken);
+            if (existing is { Status: EnrollmentStatus.Active })
+                return Result<string>.Fail("VALIDATION", "Student is already enrolled.");
+
+            var activeCount = await db.Enrollments
+                .AsNoTracking()
+                .CountAsync(e => e.ClassId == request.ClassId
+                             && e.Status == EnrollmentStatus.Active, cancellationToken);
+            if (activeCount >= klass.MaxStudents)
+                return Result<string>.Fail("VALIDATION", "Class is full.");
+
+            if (existing is not null)
+                existing.Activate(); // dropped -> active; domain treats this as a fresh enrolment
+            else
+                await db.Enrollments.AddAsync(
+                    Enrollment.Create(request.ClassId, request.StudentProfileId, Array.Empty<Enrollment>()),
+                    cancellationToken);
+
+            await db.SaveChangesAsync(cancellationToken);
+            return Result<string>.Ok("Enrolled", "Enrolled");
+        }, cancellationToken);
     }
 
     public async Task<Result<IReadOnlyCollection<ClassDto>>> Handle(GetAssignedClassesQuery request,
