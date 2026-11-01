@@ -104,4 +104,15 @@ public interface IApplicationDbContext
     /// succeeds, rolls back otherwise.
     /// </summary>
     Task<Result<T>> ExecuteInTransactionAsync<T>(Func<Task<Result<T>>> action, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Takes a transaction-scoped PostgreSQL advisory lock keyed by <paramref name="key"/>,
+    /// serialising every operation that locks the same key until the surrounding transaction
+    /// commits or rolls back (blocking, not failing, while another holder has it). Keys derived
+    /// from different ids don't block each other. Must run inside
+    /// <see cref="ExecuteInTransactionAsync{T}"/> — outside a transaction the lock would release
+    /// the instant the statement returns. Used to make a check-then-insert (e.g. class capacity)
+    /// race-safe without a dedicated lock table.
+    /// </summary>
+    Task AcquireAdvisoryLockAsync(Guid key, CancellationToken cancellationToken);
 }

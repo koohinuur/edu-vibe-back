@@ -27,6 +27,26 @@ public sealed class SubmissionsHandlers(
 {
     private bool CallerIsStaff => currentUser.StaffProfileId is not null;
 
+    /// <summary>
+    /// SECURITY: may the caller manage (grade/return/lock) a submission for this
+    /// assignment? Admins always; otherwise only a teacher of the assignment's class
+    /// (primary or co-teacher) or the assignment's author. Without this check any
+    /// teacher could grade/alter another class's submissions by id (cross-class IDOR).
+    /// </summary>
+    private async Task<bool> CanManageSubmissionAsync(Guid assignmentId, CancellationToken ct)
+    {
+        if (currentUser.IsAdmin()) return true;
+        if (currentUser.UserId is not { } uid) return false;
+        return await (
+            from a in db.Assignments
+            join c in db.Classes on a.ClassId equals c.Id
+            where a.Id == assignmentId
+                  && (c.TeacherUserId == uid
+                      || a.CreatedByTeacherId == uid
+                      || db.ClassTeachers.Any(ct2 => ct2.ClassId == c.Id && ct2.UserId == uid))
+            select a.Id).AnyAsync(ct);
+    }
+
     public async Task<Result<IReadOnlyCollection<SubmissionDto>>> Handle(GetAssignmentSubmissionsQuery request,
         CancellationToken cancellationToken)
     {
@@ -41,6 +61,13 @@ public sealed class SubmissionsHandlers(
             if (ownProfileId is null)
                 return Result<IReadOnlyCollection<SubmissionDto>>.Fail(
                     "FORBIDDEN", "Caller is neither a student nor staff.");
+        }
+        // A teacher may read a class's submission roster only for their own classes
+        // (admins/co-teachers/the author pass); this used to be any staff → any class.
+        else if (!await CanManageSubmissionAsync(request.AssignmentId, cancellationToken))
+        {
+            return Result<IReadOnlyCollection<SubmissionDto>>.Fail(
+                "FORBIDDEN", "You can only view submissions for your own classes.");
         }
 
         var query = db.Submissions.AsNoTracking()
@@ -112,6 +139,8 @@ public sealed class SubmissionsHandlers(
         var s = await db.Submissions.Include(x => x.Files)
             .FirstOrDefaultAsync(x => x.Id == request.SubmissionId, cancellationToken);
         if (s is null) return Result<SubmissionDto>.Fail("NOT_FOUND", "Submission not found.");
+        if (!await CanManageSubmissionAsync(s.AssignmentId, cancellationToken))
+            return Result<SubmissionDto>.Fail("FORBIDDEN", "You can only grade submissions for your own classes.");
         s.Grade(request.Score, request.MaxScore, request.Feedback);
         var scoreText = request.MaxScore is { } max ? $"{request.Score}/{max}" : $"{request.Score}";
         db.SubmissionAudits.Add(new SubmissionAudit(s.Id, currentUser.UserId, "graded", $"score={scoreText}"));
@@ -138,6 +167,8 @@ public sealed class SubmissionsHandlers(
         var s = await db.Submissions.Include(x => x.Files)
             .FirstOrDefaultAsync(x => x.Id == request.SubmissionId, ct);
         if (s is null) return Result<SubmissionDto>.Fail("NOT_FOUND", "Submission not found.");
+        if (!await CanManageSubmissionAsync(s.AssignmentId, ct))
+            return Result<SubmissionDto>.Fail("FORBIDDEN", "You can only manage submissions for your own classes.");
         s.ReturnForRedo(request.Feedback);
         db.SubmissionAudits.Add(new SubmissionAudit(s.Id, currentUser.UserId, "returned", request.Feedback ?? ""));
         await db.SaveChangesAsync(ct);
@@ -444,6 +475,8 @@ public sealed class SubmissionsHandlers(
         var submission = await db.Submissions.Include(s => s.Files)
             .FirstOrDefaultAsync(s => s.Id == request.SubmissionId, ct);
         if (submission is null) return Result<SubmissionDto>.Fail("NOT_FOUND", "Submission not found.");
+        if (!await CanManageSubmissionAsync(submission.AssignmentId, ct))
+            return Result<SubmissionDto>.Fail("FORBIDDEN", "You can only manage submissions for your own classes.");
 
         if (request.Locked) submission.Lock(); else submission.Unlock();
         db.SubmissionAudits.Add(new SubmissionAudit(submission.Id, currentUser.UserId,
