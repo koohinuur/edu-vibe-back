@@ -19,6 +19,13 @@ public sealed class InboxNotifier(IApplicationDbContext db, INotificationService
     {
         if (recipientUserId == Guid.Empty || string.IsNullOrWhiteSpace(text)) return;
 
+        // Notification text can embed free-form content (e.g. a teacher's full return
+        // reason), so cap it to the Message.Text column size — otherwise a long note
+        // throws on SaveChanges and the whole grade/return 500s. Must match the
+        // messages.Text HasMaxLength in EntityConfigurations.
+        const int maxMessageLength = 4000;
+        if (text.Length > maxMessageLength) text = text[..maxMessageLength];
+
         // In-app copy needs a real sender (Message.SenderUserId is required). When
         // there is none we still deliver the Telegram mirror below.
         if (senderUserId != Guid.Empty && senderUserId != recipientUserId)
