@@ -73,7 +73,7 @@ public sealed class Submission : BaseEntity
 
         Score = score;
         MaxScore = maxScore;
-        Feedback = string.IsNullOrWhiteSpace(feedback) ? null : feedback.Trim();
+        Feedback = NormalizeFeedback(feedback);
         Status = SubmissionStatus.Graded;
         Touch();
     }
@@ -89,8 +89,22 @@ public sealed class Submission : BaseEntity
         IsLocked = false;
         Score = null;
         MaxScore = null;
-        if (!string.IsNullOrWhiteSpace(feedback)) Feedback = feedback.Trim();
+        var note = NormalizeFeedback(feedback);
+        if (note is not null) Feedback = note;
         Touch();
+    }
+
+    /// <summary>Must match the Feedback column's HasMaxLength in EntityConfigurations.</summary>
+    private const int MaxFeedbackLength = 4000;
+
+    /// <summary>Trims the note and caps it to the column size; null/blank → null. We cap
+    /// rather than throw because a too-long note would otherwise surface as a 500 (the
+    /// global handler maps DomainException to 500, and this is non-critical text).</summary>
+    private static string? NormalizeFeedback(string? feedback)
+    {
+        if (string.IsNullOrWhiteSpace(feedback)) return null;
+        var trimmed = feedback.Trim();
+        return trimmed.Length > MaxFeedbackLength ? trimmed[..MaxFeedbackLength] : trimmed;
     }
 
     /// <summary>Marks the submission late (kept distinct from a re-submit).</summary>

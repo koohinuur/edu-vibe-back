@@ -11,6 +11,9 @@ namespace LMS.Domain.Entities;
 /// </summary>
 public sealed class SubmissionAudit : BaseEntity
 {
+    /// <summary>Must match the Detail column's HasMaxLength in EntityConfigurations.</summary>
+    private const int MaxDetailLength = 1024;
+
     private SubmissionAudit() { } // EF
 
     public SubmissionAudit(Guid submissionId, Guid? actorUserId, string action, string? detail)
@@ -21,7 +24,10 @@ public sealed class SubmissionAudit : BaseEntity
         SubmissionId = submissionId;
         ActorUserId = actorUserId;
         Action = action;
-        Detail = detail;
+        // The detail can be free-form (e.g. a teacher's full return reason, which the
+        // student also sees in Submission.Feedback). This is only the audit trail, so
+        // cap it to the column size instead of letting a long note throw on SaveChanges.
+        Detail = detail is { Length: > MaxDetailLength } ? detail[..MaxDetailLength] : detail;
     }
 
     public Guid SubmissionId { get; private set; }
