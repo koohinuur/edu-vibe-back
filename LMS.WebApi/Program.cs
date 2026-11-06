@@ -143,10 +143,15 @@ if (builder.Environment.IsProduction())
 }
 
 // ---- Request size limits --------------------------------------------------
-// Default Kestrel cap is 30 MB; the Result image endpoint accepts at most
-// a few MB. Trimming this prevents a malicious caller from OOM-ing the
-// process with a chunked upload.
-const int RequestBodyLimit = 10 * 1024 * 1024; // 10 MB
+// This is the GLOBAL ceiling for every request body AND the multipart form
+// length. It must be >= the largest per-endpoint upload (the file endpoints
+// declare [RequestSizeLimit(25 MB)]) plus multipart overhead (boundary +
+// Content-Disposition headers) — otherwise a worksheet/submission/material over
+// this size parses past the limit and fails with "Unexpected end of Stream".
+// [RequestSizeLimit] overrides Kestrel's MaxRequestBodySize per endpoint, but
+// nothing overrides FormOptions.MultipartBodyLengthLimit, so it has to live
+// here. 30 MB = Kestrel's own default; it comfortably covers a 25 MB upload.
+const int RequestBodyLimit = 30 * 1024 * 1024; // 30 MB (covers the 25 MB upload endpoints + overhead)
 builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = RequestBodyLimit);
 builder.Services.Configure<FormOptions>(o => o.MultipartBodyLengthLimit = RequestBodyLimit);
 
