@@ -1,5 +1,6 @@
 using System.Text.Json;
 using FluentValidation;
+using LMS.Domain.Exceptions;
 
 namespace LMS.WebApi.Middleware;
 
@@ -30,6 +31,25 @@ public sealed class GlobalExceptionMiddleware(
                 message = "Validation failed",
                 traceId = context.TraceIdentifier,
                 errors = ex.Errors.Select(e => new { e.PropertyName, e.ErrorMessage })
+            });
+        }
+        catch (DomainException ex)
+        {
+            // A broken domain invariant is the caller's mistake, not a server
+            // fault — it must read as a 400 with the actual rule that failed
+            // ("Only a draft assignment can be published."), not a generic 500
+            // "Internal server error." Most handlers use the Result pattern, but
+            // any domain method that throws straight through (and isn't caught in
+            // the handler) would otherwise surface as a scary 500 to the user.
+            // DomainException messages are curated, user-safe validation text, so
+            // they're returned verbatim in every environment.
+            logger.LogInformation(ex,
+                "Domain rule rejected. TraceId={TraceId} Path={Path}",
+                context.TraceIdentifier, context.Request.Path);
+            await WriteAsync(context, StatusCodes.Status400BadRequest, new
+            {
+                message = ex.Message,
+                traceId = context.TraceIdentifier,
             });
         }
         catch (UnauthorizedAccessException ex)
