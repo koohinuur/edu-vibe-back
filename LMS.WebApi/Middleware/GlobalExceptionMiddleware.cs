@@ -74,6 +74,39 @@ public sealed class GlobalExceptionMiddleware(
                 traceId = context.TraceIdentifier,
             });
         }
+        catch (BadHttpRequestException ex)
+        {
+            // Kestrel rejects an over-limit or malformed request body BEFORE the
+            // endpoint runs — an upload larger than MaxRequestBodySize throws
+            // here with StatusCode 413. Without this branch it fell through to the
+            // generic 500 "Internal server error", so an oversized worksheet
+            // looked like a server crash instead of "your file is too big".
+            var status = ex.StatusCode == StatusCodes.Status413PayloadTooLarge
+                ? StatusCodes.Status413PayloadTooLarge
+                : StatusCodes.Status400BadRequest;
+            var message = status == StatusCodes.Status413PayloadTooLarge
+                ? "The file is too large to upload."
+                : "The request could not be read. Please try again.";
+            logger.LogInformation(ex,
+                "Bad request body. Status={Status} TraceId={TraceId} Path={Path}",
+                status, context.TraceIdentifier, context.Request.Path);
+            await WriteAsync(context, status, new { message, traceId = context.TraceIdentifier });
+        }
+        catch (InvalidDataException ex)
+        {
+            // Thrown when a multipart body exceeds MultipartBodyLengthLimit, or the
+            // form parser hits a truncated stream ("Failed to read the request form.
+            // Unexpected end of Stream…"). Both mean the client's upload was too big
+            // or incomplete — a 413 the user can act on, not a 500.
+            logger.LogInformation(ex,
+                "Malformed or oversized upload. TraceId={TraceId} Path={Path}",
+                context.TraceIdentifier, context.Request.Path);
+            await WriteAsync(context, StatusCodes.Status413PayloadTooLarge, new
+            {
+                message = "The file is too large or could not be read. Please try a smaller file.",
+                traceId = context.TraceIdentifier,
+            });
+        }
         catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
         {
             // Client went away — don't log as error, don't write a body
